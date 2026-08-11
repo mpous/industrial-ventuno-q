@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VENTUNO Q — Machine Intelligence Demo</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+         background:var(--bg); color:var(--fg); }
+  header { padding:10px 16px; border-bottom:1px solid var(--border); display:flex;
+           align-items:center; gap:14px; }
+  header h1 { font-size:15px; margin:0; }
+  #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:#222; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
+           min-height:260px; overflow:auto; max-height:46vh; }
+  .panel h2 { font-size:13px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
+  .muted { color:var(--muted); }
+  canvas { width:100%; height:140px; background:#0b0f14; border:1px solid var(--border); border-radius:4px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; }
+  .metric { flex:1; min-width:90px; background:#0b0f14; border:1px solid var(--border); border-radius:6px; padding:8px; }
+  .metric .v { font-size:20px; font-weight:bold; }
+  .metric .l { font-size:11px; color:var(--muted); }
+  .bar { height:10px; background:#0b0f14; border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-top:4px; }
+  .bar > div { height:100%; background:var(--accent); }
+  button, select { background:#21262d; color:var(--fg); border:1px solid var(--border); border-radius:6px;
+           padding:6px 10px; font-family:inherit; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .tree-item { border-bottom:1px solid var(--border); padding:6px 0; }
+  .tree-item .t { color:var(--accent); font-size:12px; }
+  .tree-item pre { margin:4px 0 0; font-size:11px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
+  .evt { border-left:3px solid var(--accent); padding:6px 10px; margin-bottom:8px; background:#0b0f14; border-radius:4px; }
+  .evt .h { font-size:12px; }
+  .evt .r { font-size:12px; color:var(--fg); margin-top:4px; }
+  .evt .d { font-size:11px; color:var(--warn); margin-top:4px; white-space:pre-wrap; }
+  .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:#21262d; color:var(--muted); }
+  .oee-big { font-size:34px; font-weight:bold; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏭 VENTUNO&nbsp;Q · Machine Intelligence</h1>
+  <span class="muted" id="base">{{ base }}</span>
+  <span id="state-pill">—</span>
+  <span class="muted" id="conn">connecting…</span>
+</header>
+
+<div class="grid">
+  <!-- Panel A -->
+  <div class="panel">
+    <h2>A · Vibration & Real-time Inference</h2>
+    <canvas id="wave" width="600" height="140"></canvas>
+    <div class="row">
+      <div class="metric"><div class="v" id="m-score">–</div><div class="l">anomaly score</div>
+        <div class="bar"><div id="score-bar" style="width:0%"></div></div></div>
+      <div class="metric"><div class="v" id="m-rms">–</div><div class="l">RMS</div></div>
+      <div class="metric"><div class="v" id="m-kurt">–</div><div class="l">kurtosis</div></div>
+      <div class="metric"><div class="v" id="m-crest">–</div><div class="l">crest</div></div>
+    </div>
+    <div class="muted" style="margin-top:6px" id="verdict">verdict: – · model: –</div>
+    <div class="controls">
+      <select id="fault">
+        <option value="">random fault</option>
+        <option>imbalance</option><option>misalignment</option>
+        <option>bearing_spall</option><option>belt_slip</option><option>degradation</option>
+      </select>
+      <button onclick="force()">⚡ Trigger anomaly</button>
+      <span style="width:12px"></span>
+      <select id="label">
+        <option>normal</option><option>imbalance</option><option>misalignment</option>
+        <option>bearing_spall</option><option>belt_slip</option><option>degradation</option>
+      </select>
+      <button onclick="ingest()">⬆ Ingest window to Edge Impulse</button>
+    </div>
+    <div class="muted" id="ingest-status" style="margin-top:6px"></div>
+  </div>
+
+  <!-- Panel B -->
+  <div class="panel">
+    <h2>B · Unified Namespace (live)</h2>
+    <div id="tree"></div>
+  </div>
+
+  <!-- Panel C -->
+  <div class="panel">
+    <h2>C · Agents Thinking (context · reasoning · memory)</h2>
+    <div id="agents"></div>
+  </div>
+
+  <!-- Panel D -->
+  <div class="panel">
+    <h2>D · Manufacturing KPIs</h2>
+    <div class="row">
+      <div class="metric"><div class="oee-big" id="k-oee">–</div><div class="l">OEE</div></div>
+      <div class="metric">
+        <div class="l">Availability</div><div class="v" id="k-avail">–</div>
+        <div class="l">Performance</div><div class="v" id="k-perf">–</div>
+        <div class="l">Quality</div><div class="v" id="k-qual">–</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="metric"><div class="v" id="k-rate">–</div><div class="l">units/min (rate)</div></div>
+      <div class="metric"><div class="v" id="k-units">–</div><div class="l">units total</div></div>
+    </div>
+    <div class="row">
+      <div class="metric"><div class="v" id="k-up">–</div><div class="l">operational time (s)</div></div>
+      <div class="metric"><div class="v" id="k-down">–</div><div class="l">downtime (s)</div></div>
+    </div>
+    <div class="row">
+      <div class="metric"><div class="v" id="k-cost">–</div><div class="l">total cost</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = "{{ base }}";
+const store = {};       // topic -> payload
+const agentLatest = {}; // agent -> latest event
+
+function force() {
+  const fault = document.getElementById('fault').value;
+  fetch('/api/force_anomaly', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fault: fault || null})});
+}
+function ingest() {
+  const label = document.getElementById('label').value;
+  document.getElementById('ingest-status').textContent = 'ingesting…';
+  fetch('/api/ingest', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({label})}).then(r=>r.json()).then(d=>{
+      document.getElementById('ingest-status').textContent =
+        d.ok ? `✓ sent '${label}' to Edge Impulse (HTTP ${d.status})` : `✗ ${d.error||'failed'}`;
+    });
+}
+
+function fmt(n, d=2){ return (n===undefined||n===null)?'–':Number(n).toFixed(d); }
+
+function drawWave(axis){
+  const c = document.getElementById('wave'), ctx = c.getContext('2d');
+  const W=c.width, H=c.height; ctx.clearRect(0,0,W,H);
+  const colors={x:'#58a6ff',y:'#3fb950',z:'#d29922'};
+  for(const ax of ['x','y','z']){
+    const s = axis[ax]||[]; if(!s.length) continue;
+    ctx.strokeStyle=colors[ax]; ctx.lineWidth=1; ctx.beginPath();
+    for(let i=0;i<s.length;i++){
+      const x=(i/(s.length-1))*W, y=H/2 - s[i]*(H/6);
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    }
+    ctx.stroke();
+  }
+}
+
+function shortTopic(t){ return t.startsWith(BASE) ? t.slice(BASE.length+1) : t; }
+
+function renderTree(){
+  const el=document.getElementById('tree'); el.innerHTML='';
+  Object.keys(store).sort().forEach(t=>{
+    const d=document.createElement('div'); d.className='tree-item';
+    d.innerHTML=`<div class="t">${shortTopic(t)}</div><pre>${JSON.stringify(store[t])}</pre>`;
+    el.appendChild(d);
+  });
+}
+
+function renderAgents(){
+  const el=document.getElementById('agents'); el.innerHTML='';
+  Object.keys(agentLatest).forEach(name=>{
+    const e=agentLatest[name];
+    const d=document.createElement('div'); d.className='evt';
+    d.innerHTML=`<div class="h"><b>${e.agent}</b> <span class="tag">${e.event}</span>
+        <span class="tag">memory: ${(e.memory||[]).length}</span></div>
+      <div class="r">${e.reasoning||''}</div>
+      <div class="d">${e.decision?JSON.stringify(e.decision):''}</div>`;
+    el.appendChild(d);
+  });
+}
+
+function updatePanelA(){
+  const feat = store[BASE+'/vibration/features'];
+  const anom = store[BASE+'/health/anomaly'];
+  if(feat){ document.getElementById('m-rms').textContent=fmt(feat.rms);
+    document.getElementById('m-kurt').textContent=fmt(feat.kurtosis);
+    document.getElementById('m-crest').textContent=fmt(feat.crest); }
+  if(anom){ document.getElementById('m-score').textContent=fmt(anom.anomaly_score);
+    document.getElementById('score-bar').style.width=Math.min(100,anom.anomaly_score*100)+'%';
+    document.getElementById('score-bar').style.background=anom.verdict?'var(--bad)':'var(--accent)';
+    document.getElementById('verdict').textContent=
+      `verdict: ${anom.verdict?'ANOMALY':'ok'} · consec ${anom.consecutive} · model ${anom.model_ver}`; }
+}
+
+function updatePanelD(){
+  const oee=store[BASE+'/kpi/oee'], prod=store[BASE+'/kpi/production'],
+        up=store[BASE+'/kpi/uptime'], cost=store[BASE+'/kpi/cost'];
+  if(oee){ document.getElementById('k-oee').textContent=(oee.oee*100).toFixed(0)+'%';
+    document.getElementById('k-avail').textContent=(oee.availability*100).toFixed(0)+'%';
+    document.getElementById('k-perf').textContent=(oee.performance*100).toFixed(0)+'%';
+    document.getElementById('k-qual').textContent=(oee.quality*100).toFixed(0)+'%'; }
+  if(prod){ document.getElementById('k-rate').textContent=fmt(prod.rate_units_min,1);
+    document.getElementById('k-units').textContent=fmt(prod.units_total,0); }
+  if(up){ document.getElementById('k-up').textContent=fmt(up.operational_time_s,0);
+    document.getElementById('k-down').textContent=fmt(up.downtime_s,0); }
+  if(cost){ const tot=(cost.running_cost+cost.downtime_cost+cost.maintenance_cost);
+    document.getElementById('k-cost').textContent=tot.toFixed(0)+' '+cost.currency; }
+}
+
+function updateStatePill(){
+  const s=store[BASE+'/health/state'];
+  const pill=document.getElementById('state-pill'); if(!s) return;
+  pill.textContent=s.state;
+  pill.style.background = s.state==='healthy'?'var(--ok)':(s.state==='anomaly'?'var(--bad)':'var(--warn)');
+  pill.style.color='#0d1117';
+}
+
+const es = new EventSource('/events');
+es.onopen = ()=>document.getElementById('conn').textContent='● live';
+es.onerror = ()=>document.getElementById('conn').textContent='○ reconnecting…';
+es.onmessage = (ev)=>{
+  const m = JSON.parse(ev.data);
+  if(m.kind==='raw'){ drawWave(m.payload.axis||{}); return; }
+  if(m.kind==='agent'){ agentLatest[m.payload.agent]=m.payload; renderAgents(); return; }
+  // uns
+  store[m.topic]=m.payload;
+  renderTree(); updatePanelA(); updatePanelD(); updateStatePill();
+};
+</script>
+</body>
+</html>

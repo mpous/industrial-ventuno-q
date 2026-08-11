@@ -1,0 +1,5 @@
+name: VENTUNO Q Machine Intelligence
+description: "Edge vibration anomaly detection + A2A maintenance/planning agents over a Unified Namespace, with a 4-panel operations dashboard."
+icon: "🏭"
+ports: [5001]
+bricks: []
