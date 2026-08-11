@@ -118,3 +118,34 @@ order/sample rate match the deployed EI model's training data.
 
 **Result:** `BrickLLM` + `BrickModel` added; `app.yaml` wires both bricks;
 laptop defaults unchanged. Committed and pushed to `dev`.
+
+---
+
+## 2026-08-11 — App Lab upload rejected + broker connection refused
+
+**Prompt:** App Lab upload fails with *"invalid app: bad request main python file
+missing from app"*; after fixing, the app crashes at startup with
+`ConnectionRefusedError: [Errno 111]`.
+
+**Findings:**
+- Current App Lab requires the entry point at **`python/main.py`** (and
+  `requirements.txt` inside `python/`), not at the app root as older docs
+  implied. Our root-level `main.py` was why App Lab reported it "missing".
+- The startup crash is unrelated: the UNS needs a **Mosquitto broker** on
+  `localhost:1883`, and none was running on the board, so the first agent's
+  `connect()` was refused and `main.py` exited.
+
+**Reasoning / decisions:**
+- Moved `main.py`, `requirements.txt`, `ventuno/`, `tools/` under `python/`.
+  Package imports still resolve (`ventuno` is a sibling of `main.py`).
+- Hardened `config._load_dotenv()` to find `.env` in the cwd *or* the app root,
+  since cwd is now ambiguous (repo root vs `python/` vs App Lab).
+- Made `MqttClient.connect()` retry with backoff instead of hard-crashing, so
+  app/broker startup order can't kill the demo, and raised a clear message
+  pointing at `systemctl enable --now mosquitto`.
+- README: hoisted the broker prerequisite to the top of the board section (it
+  applies to *both* the brick and .eim/Ollama paths) and installed it as a
+  systemd service; updated all run commands for the `python/` layout.
+
+**Result:** App validates and starts under App Lab. Remaining board step is to
+install/enable Mosquitto. Committed and pushed to `dev`.

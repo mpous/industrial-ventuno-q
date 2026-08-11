@@ -11,9 +11,20 @@ from dataclasses import dataclass, field
 
 
 def _load_dotenv() -> None:
-    """Minimal .env loader (no python-dotenv dependency). Existing env wins."""
-    path = os.path.join(os.getcwd(), ".env")
-    if not os.path.isfile(path):
+    """Minimal .env loader (no python-dotenv dependency). Existing env wins.
+
+    Looks in the current working directory first, then the app root (the parent
+    of ``python/``) so it works whether launched from the repo root, from
+    ``python/``, or by App Lab.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))  # python/ventuno
+    app_root = os.path.dirname(os.path.dirname(here))   # repo root (parent of python/)
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(app_root, ".env"),
+    ]
+    path = next((p for p in candidates if os.path.isfile(p)), None)
+    if not path:
         return
     with open(path, "r", encoding="utf-8") as f:
         for line in f:

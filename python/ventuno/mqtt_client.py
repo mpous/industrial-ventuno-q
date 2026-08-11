@@ -25,11 +25,32 @@ class MqttClient:
             self._client.will_set(lwt_topic, json.dumps(lwt_payload or {"online": False}), qos=1, retain=True)
 
     # --- lifecycle ---
-    def connect(self, timeout: float = 10.0) -> None:
-        self._client.connect(CONFIG.mqtt_host, CONFIG.mqtt_port, keepalive=30)
+    def connect(self, timeout: float = 10.0, retries: int = 30, retry_delay: float = 2.0) -> None:
+        """Connect to the broker, retrying if it isn't up yet.
+
+        On the board the app and Mosquitto can start in either order, so a single
+        refused connection shouldn't kill the demo. We retry the TCP connect for
+        up to ``retries * retry_delay`` seconds before giving up.
+        """
+        host, port = CONFIG.mqtt_host, CONFIG.mqtt_port
+        last_exc: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                self._client.connect(host, port, keepalive=30)
+                break
+            except (ConnectionRefusedError, OSError) as exc:
+                last_exc = exc
+                print(f"[mqtt] broker {host}:{port} unavailable ({exc}); "
+                      f"retry {attempt}/{retries} in {retry_delay:.0f}s")
+                time.sleep(retry_delay)
+        else:
+            raise ConnectionError(
+                f"MQTT broker at {host}:{port} never came up. Start it, e.g. "
+                f"`sudo systemctl enable --now mosquitto`."
+            ) from last_exc
         self._client.loop_start()
         if not self._connected.wait(timeout):
-            raise TimeoutError(f"MQTT connect timeout to {CONFIG.mqtt_host}:{CONFIG.mqtt_port}")
+            raise TimeoutError(f"MQTT connect timeout to {host}:{port}")
 
     def disconnect(self) -> None:
         self._client.loop_stop()

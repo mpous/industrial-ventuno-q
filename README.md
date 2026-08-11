@@ -58,6 +58,9 @@ Agent reasoning traces are published under `agents/<name>/trace` (dashboard tele
 
 Prereqs: **Python 3.10+** and an **MQTT broker** on `localhost:1883`.
 
+> App code lives under **`python/`** (App Lab requires `python/main.py`). Run
+> from that folder.
+
 ```bash
 # 1. MQTT broker (pick one)
 #    native:  mosquitto
@@ -67,14 +70,14 @@ Prereqs: **Python 3.10+** and an **MQTT broker** on `localhost:1883`.
 # 2. Python env
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r python/requirements.txt
 
 # 3. Config (fast demo: lower the anomaly period)
-cp .env.example .env
+cp .env.example .env               # loaded from the repo root or python/
 #   set ANOMALY_PERIOD_S=45 for a quick loop
 
 # 4. Run everything (one supervisor process)
-python main.py
+cd python && python main.py
 #   dashboard -> http://localhost:5001
 ```
 
@@ -85,6 +88,7 @@ force the loop immediately.
 ### Run components individually (per-phase verification)
 
 ```bash
+cd python
 python -m ventuno.simulator.vibration_simulator
 python -m ventuno.inference.edge_inference
 python -m ventuno.kpi.kpi_service
@@ -106,7 +110,7 @@ curl http://localhost:8003/.well-known/agent-card.json
 
 ```bash
 # Generate a labeled dataset from the same physics model the simulator uses
-python -m tools.export_dataset --per-class 60 --out dataset
+cd python && python -m tools.export_dataset --per-class 60 --out dataset
 ```
 1. Upload `dataset/` to Edge Impulse Studio.
 2. Impulse: **Spectral Analysis (DSP)** + **Anomaly Detection (K-means)**.
@@ -119,7 +123,20 @@ API. Retrain/build in EI Studio, then re-deploy the `.eim`.
 
 ## Run on the VENTUNO Q
 
-Two ways to get the edge model + local LLM on the board.
+**Prerequisite (both paths): the UNS broker must be running.** The app connects
+to Mosquitto on `localhost:1883` at startup; if it isn't up, the app exits with
+`ConnectionRefusedError: [Errno 111]`. Install it once as a system service so it
+survives reboots and is up before the app:
+
+```bash
+ssh arduino@<board-ip>
+sudo apt update && sudo apt install -y mosquitto mosquitto-clients
+sudo systemctl enable --now mosquitto        # starts now + on every boot
+systemctl is-active mosquitto                # -> active
+mosquitto_sub -t 'acme/#' -v &               # optional: watch the UNS
+```
+
+Then pick a backend combo.
 
 ### A) App Lab bricks (recommended)
 
@@ -140,13 +157,12 @@ and call the same agent interface — no other code changes.
 ### B) Direct (.eim + Ollama)
 
 ```bash
-sudo apt install -y mosquitto            # UNS broker
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull gemma3:4b                     # local LLM (Qwen is pre-bundled as a fallback)
 
 cp .env.example .env
 #   MODEL_BACKEND=eim   LLM_BACKEND=ollama   OLLAMA_MODEL=gemma3:4b
-python main.py
+cd python && python main.py
 ```
 Open `http://<board-ip>:5001`.
 
