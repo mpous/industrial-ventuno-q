@@ -2,4 +2,13 @@ name: VENTUNO Q Machine Intelligence
 description: "Edge vibration anomaly detection + A2A maintenance/planning agents over a Unified Namespace, with a 4-panel operations dashboard."
 icon: "🏭"
 ports: [5001]
-bricks: []
+
+# Bricks activate on the VENTUNO Q under App Lab and start their backing
+# services (the Edge Impulse model runner and the local LLM). Select MODEL_BACKEND=brick
+# and LLM_BACKEND=brick in .env to use them; on a laptop leave the defaults
+# (statistical / mock) and these declarations are simply ignored.
+#   - llm: local Gemma/Qwen (download/select the model in App Lab)
+#   - vibration_anomaly_detection: serves the deployed EI vibration model
+bricks:
+  - arduino:llm: {}
+  - arduino:vibration_anomaly_detection: {}

@@ -5,8 +5,13 @@
   Stands in for the Edge Impulse model so the whole demo runs on a laptop.
 * EIModel           - runs a real Edge Impulse ``.eim`` (Spectral Analysis +
   K-means anomaly detection) via ``edge_impulse_linux``. Used on the VENTUNO Q.
+* BrickModel        - runs the App Lab ``vibration_anomaly_detection`` brick,
+  which serves a deployed Edge Impulse model through the App Lab EI runner.
+  Board-only; ingests the raw window we publish over the UNS.
 
-Both expose: score(feature_vector) -> float in [0, 1], and a ``version`` string.
+All expose: score(vec, raw_axis=None, fs=None) -> float in [0, 1], and a
+``version`` string. Statistical/EI use the computed feature ``vec``; the brick
+uses the raw ``raw_axis`` samples (it does its own DSP internally).
 """
 from __future__ import annotations
 
@@ -23,7 +28,7 @@ class StatisticalModel:
         self._std: np.ndarray | None = None
         self.ready = False
 
-    def score(self, vec: np.ndarray) -> float:
+    def score(self, vec: np.ndarray, raw_axis: dict | None = None, fs: int | None = None) -> float:
         if not self.ready:
             self._samples.append(vec)
             if len(self._samples) >= self.warmup:
@@ -46,7 +51,7 @@ class EIModel:
         info = self._runner.init()
         self.version = f"eim:{info.get('project', {}).get('name', 'model')}"
 
-    def score(self, vec: np.ndarray) -> float:
+    def score(self, vec: np.ndarray, raw_axis: dict | None = None, fs: int | None = None) -> float:
         res = self._runner.classify(vec.tolist())
         result = res.get("result", {})
         # K-means anomaly detection returns an "anomaly" score (higher = worse).
@@ -66,7 +71,66 @@ class EIModel:
             pass
 
 
+class BrickModel:
+    """App Lab ``vibration_anomaly_detection`` brick (board-only).
+
+    The brick buffers raw accelerometer samples into a sliding window sized to
+    the EI model's ``input_features_count``, runs inference, and fires
+    ``on_anomaly`` when the raw anomaly score crosses a threshold. We set that
+    threshold to 0 so the callback fires every window, capture the latest score,
+    and let ``edge_inference`` apply its own threshold + persistence logic.
+
+    We feed the raw window we already publish on ``vibration/raw`` (interleaved
+    x,y,z). Units, axis order, and rate must match the EI model's training data.
+    """
+
+    version = "brick-vibration"
+
+    def __init__(self):
+        from arduino.app_bricks.vibration_anomaly_detection import VibrationAnomalyDetection
+
+        self._brick = VibrationAnomalyDetection(anomaly_detection_threshold=0.0)
+        self._last_score = 0.0
+        self._brick.on_anomaly(self._capture)
+        start = getattr(self._brick, "start", None)
+        if callable(start):
+            start()
+        info = self._brick.get_model_info()
+        freq = int(getattr(info, "frequency", 0) or 0)
+        self.version = f"brick-vibration:{freq}Hz"
+
+    def _capture(self, anomaly_score: float, classification: dict | None = None) -> None:
+        self._last_score = float(anomaly_score)
+
+    def score(self, vec: np.ndarray, raw_axis: dict | None = None, fs: int | None = None) -> float:
+        if not raw_axis:
+            return float(np.tanh(self._last_score / 3.0))
+        x, y, z = raw_axis.get("x", []), raw_axis.get("y", []), raw_axis.get("z", [])
+        n = min(len(x), len(y), len(z))
+        if n:
+            interleaved: list[float] = []
+            for i in range(n):
+                interleaved.extend((x[i], y[i], z[i]))
+            self._brick.accumulate_samples(interleaved)
+            # Drain any full windows the sliding buffer produced this push.
+            for _ in range(4):
+                self._brick.loop()
+        # Raw EI anomaly score is a distance (can exceed 1); squash to 0..1 to
+        # match the threshold scale the rest of the pipeline expects.
+        return float(np.tanh(self._last_score / 3.0))
+
+    def stop(self) -> None:
+        stop = getattr(self._brick, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+
+
 def build_model(backend: str, eim_path: str):
+    if backend == "brick":
+        return BrickModel()
     if backend == "eim":
         return EIModel(eim_path)
     return StatisticalModel()

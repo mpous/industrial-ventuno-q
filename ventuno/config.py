@@ -61,13 +61,13 @@ class Config:
     anomaly_period_s: float = field(default_factory=lambda: _get_float("ANOMALY_PERIOD_S", 300.0))
 
     # --- Inference / anomaly model ---
-    model_backend: str = field(default_factory=lambda: _get("MODEL_BACKEND", "statistical"))  # statistical | eim
+    model_backend: str = field(default_factory=lambda: _get("MODEL_BACKEND", "statistical"))  # statistical | eim | brick
     eim_path: str = field(default_factory=lambda: _get("EIM_PATH", "models/conveyor-anomaly.eim"))
     anomaly_threshold: float = field(default_factory=lambda: _get_float("ANOMALY_THRESHOLD", 0.5))
     anomaly_persist: int = field(default_factory=lambda: _get_int("ANOMALY_PERSIST", 3))  # consecutive windows
 
     # --- LLM (agents) ---
-    llm_backend: str = field(default_factory=lambda: _get("LLM_BACKEND", "mock"))  # mock | ollama
+    llm_backend: str = field(default_factory=lambda: _get("LLM_BACKEND", "mock"))  # mock | ollama | brick
     ollama_host: str = field(default_factory=lambda: _get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _get("OLLAMA_MODEL", "gemma3:4b"))
 

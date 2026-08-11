@@ -24,7 +24,7 @@ react → window closes → machine repaired → healthy
 | Layer | Component | Publishes / role |
 |---|---|---|
 | L0 Edge | `vibration_simulator` | `vibration/raw` (stands in for a CAN-FD/IEPE sensor) |
-| L0 Edge | `edge_inference` | `vibration/features`, `health/anomaly`, `health/state` |
+| L0 Edge | `edge_inference` | `vibration/features`, `health/anomaly`, `health/state` (statistical / EI `.eim` / `vibration_anomaly_detection` brick) |
 | L1 UNS | Mosquitto | single source of truth / event bus |
 | L2 | `maintenance_agent` (A2A + LLM) | `maintenance/workorder`, delegates via A2A |
 | L4 | `corporate_agent` (A2A, mock CMMS) | `maintenance/window`, drives `health/state` |
@@ -119,16 +119,34 @@ API. Retrain/build in EI Studio, then re-deploy the `.eim`.
 
 ## Run on the VENTUNO Q
 
+Two ways to get the edge model + local LLM on the board.
+
+### A) App Lab bricks (recommended)
+
+`app.yaml` declares two bricks that App Lab starts for you:
+`arduino:llm` (local Gemma/Qwen) and `arduino:vibration_anomaly_detection`
+(serves your deployed Edge Impulse model). Select/download the LLM model in App
+Lab, deploy the vibration model, then:
+
 ```bash
-# System services on the board
+cp .env.example .env
+#   MODEL_BACKEND=brick   LLM_BACKEND=brick
+arduino-app-cli app start .
+```
+
+The `brick` backends ingest the same raw window we publish on `vibration/raw`
+and call the same agent interface — no other code changes.
+
+### B) Direct (.eim + Ollama)
+
+```bash
 sudo apt install -y mosquitto            # UNS broker
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull gemma3:4b                     # local LLM (Qwen is pre-bundled as a fallback)
 
-# App
 cp .env.example .env
 #   MODEL_BACKEND=eim   LLM_BACKEND=ollama   OLLAMA_MODEL=gemma3:4b
-arduino-app-cli app start .               # or: python main.py
+python main.py
 ```
 Open `http://<board-ip>:5001`.
 

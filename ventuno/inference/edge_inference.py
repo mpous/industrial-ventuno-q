@@ -48,7 +48,7 @@ class EdgeInference:
         summary.update({"ts": now_ts()})
         self.mqtt.publish(uns.FEATURES, summary)
 
-        score = float(self.model.score(vec))
+        score = float(self.model.score(vec, raw_axis=axis, fs=fs))
         threshold = self.cfg.anomaly_threshold
         over = score > threshold
         self._consecutive = self._consecutive + 1 if over else 0
