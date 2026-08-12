@@ -149,3 +149,40 @@ missing from app"*; after fixing, the app crashes at startup with
 
 **Result:** App validates and starts under App Lab. Remaining board step is to
 install/enable Mosquitto. Committed and pushed to `dev`.
+
+---
+
+## 2026-08-12 — App can't reach the broker from inside the App Lab container
+
+**Prompt:** App still crashes on startup — 30 retries of
+`ConnectionRefusedError: [Errno 111]` to `localhost:1883`, then exits — even
+though Mosquitto is confirmed running on the board. "fix this".
+
+**Findings / root cause:**
+- The traceback paths (`/app/python/main.py`, `/app/.cache/.venv`) show App Lab
+  runs the app in a **bridged container**. Inside it, `localhost` is the
+  *container*, not the board, so the host's Mosquitto is unreachable at
+  `localhost:1883`. The earlier connect-retry hardening only delayed the crash
+  by 60s; the broker was genuinely unreachable at that address.
+- Mosquitto's default config also binds only to `127.0.0.1` ("local only"), so
+  even with the right host it wouldn't accept the container's connection.
+
+**Reasoning / decisions:**
+- **App side (code):** on a Docker bridge network the container's *default
+  gateway* is the host (the board). Added `_default_gateway_ip()` (parses
+  `/proc/net/route`) and `_candidate_hosts()`; `MqttClient.connect()` now tries
+  the configured host first, then the gateway, then `172.17.0.1`, per retry
+  round — so it self-heals under App Lab with no hardcoded board IP. Off-board
+  (laptop) `localhost` still wins on the first try, so laptop dev is unchanged.
+- **Board side (config, documented in README):** Mosquitto must listen beyond
+  localhost. Add `/etc/mosquitto/conf.d/uns.conf` with `listener 1883 0.0.0.0` +
+  `allow_anonymous true`, then `systemctl restart mosquitto`.
+
+**Caveat (unverified):** written on the Windows dev box; not executed. Assumes
+App Lab uses standard Docker bridge networking (gateway = host). If App Lab uses
+host networking instead, `localhost` already works and the gateway fallback is
+simply unused.
+
+**Result:** `mqtt_client.py` gains gateway auto-discovery + multi-host connect;
+README documents the `listener 0.0.0.0` prerequisite. Pending commit/push to
+`dev`.

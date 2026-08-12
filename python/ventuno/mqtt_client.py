@@ -5,6 +5,8 @@ Pinned to paho-mqtt 1.6.x for stable v1 callback signatures across platforms.
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import threading
 import time
 from typing import Callable
@@ -14,11 +16,45 @@ import paho.mqtt.client as mqtt
 from .config import CONFIG
 
 
+def _default_gateway_ip() -> str | None:
+    """Return the container's default-gateway IP by parsing ``/proc/net/route``.
+
+    Under App Lab the app runs in a bridged container, so ``localhost`` is the
+    container itself — the board's Mosquitto is not reachable there. On a Docker
+    bridge network the default gateway *is* the host (the board), so this is the
+    address where the broker actually lives. Returns None off-Linux or if the
+    route can't be read (e.g. host networking, where localhost already works).
+    """
+    try:
+        with open("/proc/net/route", encoding="ascii") as f:
+            next(f)  # header
+            for line in f:
+                fields = line.strip().split()
+                # Destination 0.0.0.0 with the RTF_GATEWAY flag (0x2) set.
+                if fields[1] == "00000000" and int(fields[3], 16) & 0x2:
+                    gw = int(fields[2], 16)  # little-endian hex
+                    return socket.inet_ntoa(struct.pack("<L", gw))
+    except (OSError, StopIteration, IndexError, ValueError):
+        return None
+    return None
+
+
+def _candidate_hosts() -> list[str]:
+    """Broker hosts to try, in order: the configured host, then likely board
+    addresses when the app is containerized (default gateway, Docker bridge)."""
+    hosts = [CONFIG.mqtt_host]
+    for extra in (_default_gateway_ip(), "172.17.0.1"):
+        if extra and extra not in hosts:
+            hosts.append(extra)
+    return hosts
+
+
 class MqttClient:
     def __init__(self, client_id: str, lwt_topic: str | None = None, lwt_payload: dict | None = None):
         self._client = mqtt.Client(client_id=client_id, clean_session=True)
         self._handlers: dict[str, Callable[[str, dict], None]] = {}
         self._connected = threading.Event()
+        self._host: str | None = None
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         if lwt_topic is not None:
@@ -29,28 +65,37 @@ class MqttClient:
         """Connect to the broker, retrying if it isn't up yet.
 
         On the board the app and Mosquitto can start in either order, so a single
-        refused connection shouldn't kill the demo. We retry the TCP connect for
-        up to ``retries * retry_delay`` seconds before giving up.
+        refused connection shouldn't kill the demo. We also try several candidate
+        hosts per round (see ``_candidate_hosts``): under App Lab the app is
+        containerized and ``localhost`` is the container, not the board, so the
+        broker is reached via the default gateway instead.
         """
-        host, port = CONFIG.mqtt_host, CONFIG.mqtt_port
+        port = CONFIG.mqtt_port
+        hosts = _candidate_hosts()
         last_exc: Exception | None = None
         for attempt in range(1, retries + 1):
-            try:
-                self._client.connect(host, port, keepalive=30)
-                break
-            except (ConnectionRefusedError, OSError) as exc:
-                last_exc = exc
-                print(f"[mqtt] broker {host}:{port} unavailable ({exc}); "
+            for host in hosts:
+                try:
+                    self._client.connect(host, port, keepalive=30)
+                    self._host = host
+                    break
+                except (ConnectionRefusedError, OSError) as exc:
+                    last_exc = exc
+            else:
+                print(f"[mqtt] broker unavailable on {hosts}:{port} ({last_exc}); "
                       f"retry {attempt}/{retries} in {retry_delay:.0f}s")
                 time.sleep(retry_delay)
+                continue
+            break
         else:
             raise ConnectionError(
-                f"MQTT broker at {host}:{port} never came up. Start it, e.g. "
-                f"`sudo systemctl enable --now mosquitto`."
+                f"MQTT broker never came up on any of {hosts}:{port}. Start it and "
+                f"ensure it listens beyond localhost, e.g. add a listener on 0.0.0.0 "
+                f"and `sudo systemctl restart mosquitto`."
             ) from last_exc
         self._client.loop_start()
         if not self._connected.wait(timeout):
-            raise TimeoutError(f"MQTT connect timeout to {host}:{port}")
+            raise TimeoutError(f"MQTT connect timeout to {self._host}:{port}")
 
     def disconnect(self) -> None:
         self._client.loop_stop()

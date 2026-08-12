@@ -123,18 +123,33 @@ API. Retrain/build in EI Studio, then re-deploy the `.eim`.
 
 ## Run on the VENTUNO Q
 
-**Prerequisite (both paths): the UNS broker must be running.** The app connects
-to Mosquitto on `localhost:1883` at startup; if it isn't up, the app exits with
-`ConnectionRefusedError: [Errno 111]`. Install it once as a system service so it
-survives reboots and is up before the app:
+**Prerequisite (both paths): the UNS broker must be running _and reachable from
+the app_.** App Lab runs the app in a bridged container, so `localhost` inside
+the app is the container — not the board. Two things are needed: (1) Mosquitto
+running, and (2) Mosquitto listening beyond `127.0.0.1` so the container can
+reach it over the bridge. The app auto-discovers the board via the container's
+default gateway, so you don't need to hardcode an IP.
 
 ```bash
 ssh arduino@<board-ip>
 sudo apt update && sudo apt install -y mosquitto mosquitto-clients
+
+# Open the broker to the bridge network (default config is localhost-only).
+sudo tee /etc/mosquitto/conf.d/uns.conf >/dev/null <<'EOF'
+listener 1883 0.0.0.0
+allow_anonymous true
+EOF
+
 sudo systemctl enable --now mosquitto        # starts now + on every boot
+sudo systemctl restart mosquitto             # pick up the new listener
 systemctl is-active mosquitto                # -> active
 mosquitto_sub -t 'acme/#' -v &               # optional: watch the UNS
 ```
+
+> If Mosquitto stays on `localhost` only, the app fails all connect retries with
+> `ConnectionRefusedError: [Errno 111]` and exits — the `listener 0.0.0.0` line
+> is what fixes it. `allow_anonymous true` is fine for this on-board demo; add
+> auth if the board is on an untrusted network.
 
 Then pick a backend combo.
 
