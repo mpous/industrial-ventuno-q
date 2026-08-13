@@ -107,6 +107,7 @@ class BrickModel:
 
         self._brick = VibrationAnomalyDetection(anomaly_detection_threshold=0.0)
         self._last_score = 0.0
+        self._capture_count = 0
         self._brick.on_anomaly(self._capture)
         start = getattr(self._brick, "start", None)
         if callable(start):
@@ -116,15 +117,20 @@ class BrickModel:
         self._freq = freq
         self._features = int(getattr(info, "input_features_count", 0) or 0)
         self.version = f"brick-vibration:{freq}Hz"
+        print(f"[brick] vibration model ready: freq={freq}Hz "
+              f"input_features={self._features}")
 
     def _capture(self, anomaly_score: float, classification: dict | None = None) -> None:
         self._last_score = float(anomaly_score)
+        self._capture_count += 1
+        print(f"[brick] on_anomaly #{self._capture_count} raw_score={anomaly_score}")
 
     def score(self, vec: np.ndarray, raw_axis: dict | None = None, fs: int | None = None) -> float:
         if not raw_axis:
             return float(np.tanh(self._last_score / 3.0))
         x, y, z = raw_axis.get("x", []), raw_axis.get("y", []), raw_axis.get("z", [])
         n = min(len(x), len(y), len(z))
+        before = self._capture_count
         if n:
             interleaved: list[float] = []
             for i in range(n):
@@ -133,6 +139,9 @@ class BrickModel:
             # Drain any full windows the sliding buffer produced this push.
             for _ in range(4):
                 self._brick.loop()
+        if self._capture_count == before:
+            print(f"[brick] fed {n} samples/axis; on_anomaly did NOT fire this window "
+                  f"(last_score={self._last_score})")
         # Raw EI anomaly score is a distance (can exceed 1); squash to 0..1 to
         # match the threshold scale the rest of the pipeline expects.
         return float(np.tanh(self._last_score / 3.0))

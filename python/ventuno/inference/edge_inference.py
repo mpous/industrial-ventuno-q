@@ -36,6 +36,10 @@ class EdgeInference:
         self.mqtt.subscribe(uns.STATE, self._on_state)
         self.mqtt.publish(uns.STATE, {"state": uns.STATE_HEALTHY, "ts": now_ts()}, retain=True)
         self._publish_model_info()
+        info = getattr(self.model, "info", None)
+        info = info() if callable(info) else {"version": self.model.version}
+        print(f"[edge] inference up: backend={self.cfg.model_backend} model={info} "
+              f"threshold={self.cfg.anomaly_threshold} persist={self.cfg.anomaly_persist}")
 
     def _publish_model_info(self) -> None:
         info = getattr(self.model, "info", None)
@@ -77,6 +81,8 @@ class EdgeInference:
         over = score > threshold
         self._consecutive = self._consecutive + 1 if over else 0
         verdict = self._consecutive >= self.cfg.anomaly_persist
+        print(f"[edge] score={score:.4f} thr={threshold} over={over} "
+              f"consecutive={self._consecutive}/{self.cfg.anomaly_persist} verdict={verdict}")
 
         self.mqtt.publish(
             uns.ANOMALY,

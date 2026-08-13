@@ -24,16 +24,17 @@
   .logo img { height:20px; display:block; }
   #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:var(--btn); }
   .spacer { flex:1; }
-  /* Layout: KPI (D) sits above the big UNS (B); tall agent history (C) */
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px;
-          grid-template-areas: "a d" "c b" "c b"; }
-  .pa{ grid-area:a; } .pb{ grid-area:b; } .pc{ grid-area:c; } .pd{ grid-area:d; }
+  /* Layout: two independent columns so the right side flows D -> B with no gap.
+     Left: vibration (A) over the tall agent history (C).
+     Right: compact KPIs (D) over the big UNS tree (B). */
+  .grid { display:flex; gap:12px; padding:12px; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; gap:12px; flex:1; min-width:0; }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
            overflow:auto; }
   .pa { min-height:300px; max-height:46vh; }
   .pb { max-height:80vh; }         /* larger UNS box */
   .pc { max-height:94vh; }         /* tall, scrollable agent history */
-  .pd { max-height:34vh; }         /* smaller KPI box, above the UNS */
+  .pd { overflow:visible; }        /* KPI box sizes to its content — never scrolls */
   .panel h2 { font-size:13px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
   .muted { color:var(--muted); }
   canvas { width:100%; height:140px; background:var(--wave); border:1px solid var(--border); border-radius:4px; }
@@ -100,6 +101,7 @@
 </header>
 
 <div class="grid">
+ <div class="col">
   <!-- Panel A -->
   <div class="panel pa">
     <h2>Vibration &amp; Real-time Inference</h2>
@@ -138,20 +140,15 @@
     <div class="muted" id="ingest-status" style="margin-top:6px"></div>
   </div>
 
-  <!-- Panel B -->
-  <div class="panel pb">
-    <h2>Unified Namespace<span class="tip" title="Unified Namespace (UNS): a single MQTT hierarchy that is the real-time single source of truth for the whole enterprise. Topics follow ISA-95: enterprise / site / area / line / cell.">?</span> · ISA-95 topic tree</h2>
-    <div class="muted" style="font-size:11px;margin-bottom:6px">Live view of the whole enterprise (<span id="ent">{{ enterprise }}</span>/#). Each datum sits at the level that owns it.</div>
-    <div id="tree"></div>
-  </div>
-
   <!-- Panel C -->
   <div class="panel pc">
     <h2>Agents Thinking<span class="tip" title="Autonomous agents subscribe to the UNS, reason with an LLM, and coordinate over Google's Agent-to-Agent (A2A) protocol. This shows their context, reasoning and decisions over time.">?</span></h2>
     <div class="llm-bar" id="llm-bar">LLM in use: <span class="badge" id="llm-badge">–</span> <span id="llm-model" class="muted"></span></div>
     <div id="agents"></div>
   </div>
+ </div>
 
+ <div class="col">
   <!-- Panel D -->
   <div class="panel pd">
     <h2>Manufacturing KPIs<span class="tip" title="Key Performance Indicators: quantified measures of how well the line is producing — effectiveness, output rate and cost.">?</span></h2>
@@ -181,6 +178,14 @@
         <div class="l">total cost<span class="tip" title="Running cost + downtime cost + maintenance cost accumulated so far.">?</span></div></div>
     </div>
   </div>
+
+  <!-- Panel B -->
+  <div class="panel pb">
+    <h2>Unified Namespace<span class="tip" title="Unified Namespace (UNS): a single MQTT hierarchy that is the real-time single source of truth for the whole enterprise. Topics follow ISA-95: enterprise / site / area / line / cell.">?</span> · ISA-95 topic tree</h2>
+    <div class="muted" style="font-size:11px;margin-bottom:6px">Live view of the whole enterprise (<span id="ent">{{ enterprise }}</span>/#). Each datum sits at the level that owns it.</div>
+    <div id="tree"></div>
+  </div>
+ </div>
 </div>
 
 <script>
