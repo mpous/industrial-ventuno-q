@@ -42,6 +42,7 @@ Base: `acme/barcelona/packaging/line1/conveyor01`
 vibration/raw            {ts, fs_hz, axis:{x,y,z}, rpm}
 vibration/features       {ts, rms, kurtosis, crest, band_energy[]}
 health/anomaly           {ts, anomaly_score, threshold, verdict, model_ver}
+health/model       (r)   {backend, version, ready, frequency, input_features, note}
 health/state       (r)   {state: healthy|anomaly|maintenance, ts}
 edge/status      (r,lwt) {online, app_ver}
 maintenance/workorder    {id, cause_hypothesis, severity, decision, rationale}
@@ -117,9 +118,11 @@ cd python && python -m tools.export_dataset --per-class 60 --out dataset
 3. Deploy → export **`.eim` for Arduino VENTUNO Q** (GPU/NPU where available).
 4. Put it at `models/conveyor-anomaly.eim`, `chmod +x`, set `MODEL_BACKEND=eim`.
 
-**Panel A retraining (ingest only):** set `EI_API_KEY` (server-side) and use the
-*Ingest window to Edge Impulse* button to push labeled windows via the Ingestion
-API. Retrain/build in EI Studio, then re-deploy the `.eim`.
+**Panel A retraining (ingest only):** enter your Edge Impulse API key in the
+panel (kept in the browser, sent per request), pick a label, and use **Record
+10s** to capture a live 10-second sample — or **Ingest 1 window** for a single
+window — pushed via the Ingestion API. Retrain/build in EI Studio, then
+re-deploy the `.eim` (or the vibration brick model).
 
 ## Run on the VENTUNO Q
 

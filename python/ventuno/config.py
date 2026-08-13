@@ -87,7 +87,7 @@ class Config:
     plan_port: int = field(default_factory=lambda: _get_int("PLAN_PORT", 8002))
     corp_port: int = field(default_factory=lambda: _get_int("CORP_PORT", 8003))
     a2a_host: str = field(default_factory=lambda: _get("A2A_HOST", "localhost"))
-    maint_duration_s: float = field(default_factory=lambda: _get_float("MAINT_DURATION_S", 90.0))
+    maint_duration_s: float = field(default_factory=lambda: _get_float("MAINT_DURATION_S", 60.0))
 
     # --- Dashboard ---
     dashboard_port: int = field(default_factory=lambda: _get_int("DASHBOARD_PORT", 5001))

@@ -26,6 +26,7 @@ class VibrationSimulator:
         self.rng = self.model.rng
         self._active_fault: str | None = None
         self._severity: float = 1.0
+        self._under_maintenance = False
         self._next_anomaly_at = time.monotonic() + self._sample_interval()
         self._force = threading.Event()
         self._forced_fault: str | None = None
@@ -41,13 +42,21 @@ class VibrationSimulator:
         self._force.set()
 
     def _on_state(self, topic: str, payload: dict) -> None:
-        if payload.get("state") == uns.STATE_MAINTENANCE and self._active_fault:
-            print(f"[sim] maintenance -> clearing fault '{self._active_fault}' (repaired)")
-            self._active_fault = None
-            self._next_anomaly_at = time.monotonic() + self._sample_interval()
+        state = payload.get("state")
+        if state == uns.STATE_MAINTENANCE:
+            self._under_maintenance = True
+            if self._active_fault:
+                print(f"[sim] maintenance -> clearing fault '{self._active_fault}' (repaired)")
+                self._active_fault = None
+                self._next_anomaly_at = time.monotonic() + self._sample_interval()
+        else:
+            # Repair window closed (healthy) -> machine powers back up.
+            if self._under_maintenance:
+                print("[sim] maintenance closed -> machine running again")
+            self._under_maintenance = False
 
     def _maybe_trigger(self) -> None:
-        if self._active_fault is not None:
+        if self._under_maintenance or self._active_fault is not None:
             return
         if self._force.is_set():
             self._force.clear()
@@ -80,15 +89,23 @@ class VibrationSimulator:
         while not self._stop.is_set():
             t0 = time.monotonic()
             self._maybe_trigger()
-            win = self.model.generate_window(n, fault=self._active_fault, severity=self._severity)
+            if self._under_maintenance:
+                # Machine is powered down for repair: no vibration at all.
+                zeros = [0.0] * n
+                win = {"x": zeros, "y": zeros, "z": zeros}
+                label = "stopped"
+            else:
+                w = self.model.generate_window(n, fault=self._active_fault, severity=self._severity)
+                win = {k: [round(v, 5) for v in w[k].tolist()] for k in ("x", "y", "z")}
+                label = self._active_fault or "normal"
             self.mqtt.publish(
                 uns.RAW,
                 {
                     "ts": now_ts(),
                     "fs_hz": fs,
-                    "rpm": self.cfg.sim_rpm,
-                    "axis": {k: [round(v, 5) for v in win[k].tolist()] for k in ("x", "y", "z")},
-                    "_label": self._active_fault or "normal",  # ground truth for dataset export
+                    "rpm": 0.0 if self._under_maintenance else self.cfg.sim_rpm,
+                    "axis": win,
+                    "_label": label,  # ground truth for dataset export
                 },
             )
             elapsed = time.monotonic() - t0

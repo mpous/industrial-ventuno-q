@@ -186,3 +186,60 @@ simply unused.
 **Result:** `mqtt_client.py` gains gateway auto-discovery + multi-host connect;
 README documents the `listener 0.0.0.0` prerequisite. Pending commit/push to
 `dev`.
+
+---
+
+## 2026-08-12 — Dashboard feature round: EI recording, maintenance realism, model transparency, theming, UNS tree
+
+**Prompt (paraphrased):** In the dashboard: (1) let me enter the EI API key in
+the UI and *record* 10-second labeled samples to Edge Impulse; (2) make the
+maintenance window ~1 minute so the machine is fixed in 60s and resumes — and
+show *no* vibration while under maintenance; (3) is the anomaly score real from
+the vibration_anomaly_detection brick? if so, show the model; (4) add a light
+mode alongside night mode; (5) EI logo top-left + title "Industrial Automation
+Project with UNS and Agents"; (6) render the UNS live view as an ISA-95 topic
+tree. Ask questions first.
+
+**Clarifying answers from the user:** EI key = **browser-only** (sent per
+request, not stored server-side); Record = **10s live capture + dropdown
+label**; maintenance = **machine stopped, flat/zero vibration, 60s repair**;
+logo = **bundle locally**.
+
+**Answer to (3):** With `MODEL_BACKEND=statistical` (the current run) the score
+is the z-distance baseline, **not** the brick. Real brick inference needs
+`MODEL_BACKEND=brick` + a deployed EI vibration model; only then does
+`get_model_info()` (frequency, input_features_count) return real data.
+
+**Reasoning / decisions:**
+- **Model transparency:** new retained UNS topic `health/model`. Each model
+  gained `info()`; `edge_inference` publishes it at startup. Panel A shows a
+  LIVE-EI vs BASELINE badge so the demo is honest about what's actually running.
+- **Maintenance realism:** `MAINT_DURATION_S` default 90→60. Simulator tracks
+  `_under_maintenance` (from `health/state`) and emits flat zeros (rpm 0) during
+  the repair window; `edge_inference` short-circuits to score 0 while in
+  maintenance so the flat window isn't misread as an anomaly. Machine resumes
+  healthy when the window closes.
+- **EI record/ingest (browser key):** dropped the server-side `EI_API_KEY`
+  dependency in the dashboard. `/api/ingest` and new `/api/record` take the key
+  in the request body. `/api/record` buffers full-resolution raw windows
+  server-side for N seconds (client shows a countdown), stitches them, and
+  uploads one labeled sample. Key persists in browser `localStorage` only.
+- **Theming:** CSS custom properties + `html[data-theme="light"]` overrides;
+  header toggle persists the choice; default stays dark.
+- **Branding:** EI logo downloaded to `dashboard/static/edge-impulse-logo.svg`
+  (served locally, works offline) on a white badge (its wordmark is black, so
+  the badge keeps it visible in dark mode). Title updated.
+- **UNS tree:** Panel B now builds a nested `<details>` tree by splitting topics
+  on `/`, reflecting the ISA-95 hierarchy instead of a flat list.
+
+**Security note:** the user explicitly chose browser-held keys, overriding the
+earlier server-side-only stance. The key is never committed and never persisted
+on the board; it lives in the browser and is used only for the outbound EI call.
+
+**Caveat (unverified):** written on the Windows dev box (no Python); not
+executed. Brick model-info values only populate under the brick backend on
+hardware.
+
+**Result:** config, simulator, edge_inference, models, uns, dashboard
+(server + template), README, `.env.example` updated; logo bundled. Pending
+commit/push to `dev`.

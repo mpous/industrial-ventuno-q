@@ -3,50 +3,74 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VENTUNO Q — Machine Intelligence Demo</title>
+<title>Industrial Automation Project with UNS and Agents</title>
 <style>
+  /* Dark (night) theme — default */
   :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e;
+          --inset:#0b0f14; --btn:#21262d; --wave:#0b0f14;
           --ok:#3fb950; --warn:#d29922; --bad:#f85149; --accent:#58a6ff; }
+  /* Light (day) theme */
+  html[data-theme="light"] { --bg:#f6f8fa; --panel:#ffffff; --border:#d0d7de; --fg:#1f2328;
+          --muted:#656d76; --inset:#f0f3f6; --btn:#eaeef2; --wave:#f0f3f6;
+          --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; --accent:#0969da; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
          background:var(--bg); color:var(--fg); }
   header { padding:10px 16px; border-bottom:1px solid var(--border); display:flex;
            align-items:center; gap:14px; }
   header h1 { font-size:15px; margin:0; }
-  #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:#222; }
+  .logo { background:#fff; padding:6px 10px; border-radius:8px; display:inline-flex;
+          align-items:center; border:1px solid var(--border); }
+  .logo img { height:20px; display:block; }
+  #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:var(--btn); }
+  .spacer { flex:1; }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
            min-height:260px; overflow:auto; max-height:46vh; }
   .panel h2 { font-size:13px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
   .muted { color:var(--muted); }
-  canvas { width:100%; height:140px; background:#0b0f14; border:1px solid var(--border); border-radius:4px; }
+  canvas { width:100%; height:140px; background:var(--wave); border:1px solid var(--border); border-radius:4px; }
   .row { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; }
-  .metric { flex:1; min-width:90px; background:#0b0f14; border:1px solid var(--border); border-radius:6px; padding:8px; }
+  .metric { flex:1; min-width:90px; background:var(--inset); border:1px solid var(--border); border-radius:6px; padding:8px; }
   .metric .v { font-size:20px; font-weight:bold; }
   .metric .l { font-size:11px; color:var(--muted); }
-  .bar { height:10px; background:#0b0f14; border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-top:4px; }
+  .bar { height:10px; background:var(--inset); border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-top:4px; }
   .bar > div { height:100%; background:var(--accent); }
-  button, select { background:#21262d; color:var(--fg); border:1px solid var(--border); border-radius:6px;
+  button, select, input { background:var(--btn); color:var(--fg); border:1px solid var(--border); border-radius:6px;
            padding:6px 10px; font-family:inherit; cursor:pointer; }
+  input { cursor:text; }
   button:hover { border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
   .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
-  .tree-item { border-bottom:1px solid var(--border); padding:6px 0; }
-  .tree-item .t { color:var(--accent); font-size:12px; }
-  .tree-item pre { margin:4px 0 0; font-size:11px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
-  .evt { border-left:3px solid var(--accent); padding:6px 10px; margin-bottom:8px; background:#0b0f14; border-radius:4px; }
+  .model-info { margin-top:6px; font-size:11px; }
+  .model-info .badge { padding:1px 6px; border-radius:8px; font-weight:bold; }
+  /* UNS topic tree */
+  #tree { font-size:12px; }
+  .node { margin-left:14px; border-left:1px dotted var(--border); padding-left:8px; }
+  .node.root { margin-left:0; border-left:none; padding-left:0; }
+  details > summary { cursor:pointer; color:var(--accent); padding:2px 0; list-style:none; }
+  details > summary::before { content:"▸ "; color:var(--muted); }
+  details[open] > summary::before { content:"▾ "; }
+  .leaf { padding:2px 0; }
+  .leaf .seg { color:var(--ok); }
+  .leaf pre { margin:2px 0 6px 14px; font-size:11px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
+  .evt { border-left:3px solid var(--accent); padding:6px 10px; margin-bottom:8px; background:var(--inset); border-radius:4px; }
   .evt .h { font-size:12px; }
   .evt .r { font-size:12px; color:var(--fg); margin-top:4px; }
   .evt .d { font-size:11px; color:var(--warn); margin-top:4px; white-space:pre-wrap; }
-  .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:#21262d; color:var(--muted); }
+  .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--btn); color:var(--muted); }
   .oee-big { font-size:34px; font-weight:bold; }
 </style>
 </head>
 <body>
 <header>
-  <h1>🏭 VENTUNO&nbsp;Q · Machine Intelligence</h1>
+  <span class="logo"><img src="/static/edge-impulse-logo.svg" alt="Edge Impulse"></span>
+  <h1>Industrial Automation Project with UNS and Agents</h1>
   <span class="muted" id="base">{{ base }}</span>
   <span id="state-pill">—</span>
+  <span class="spacer"></span>
   <span class="muted" id="conn">connecting…</span>
+  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
 </header>
 
 <div class="grid">
@@ -62,6 +86,7 @@
       <div class="metric"><div class="v" id="m-crest">–</div><div class="l">crest</div></div>
     </div>
     <div class="muted" style="margin-top:6px" id="verdict">verdict: – · model: –</div>
+    <div class="model-info muted" id="model-info">model: –</div>
     <div class="controls">
       <select id="fault">
         <option value="">random fault</option>
@@ -69,19 +94,23 @@
         <option>bearing_spall</option><option>belt_slip</option><option>degradation</option>
       </select>
       <button onclick="force()">⚡ Trigger anomaly</button>
-      <span style="width:12px"></span>
+    </div>
+    <div class="controls">
+      <input id="ei-key" type="password" placeholder="Edge Impulse API key" style="min-width:210px"
+             oninput="saveKey()">
       <select id="label">
         <option>normal</option><option>imbalance</option><option>misalignment</option>
         <option>bearing_spall</option><option>belt_slip</option><option>degradation</option>
       </select>
-      <button onclick="ingest()">⬆ Ingest window to Edge Impulse</button>
+      <button id="rec-btn" onclick="record()">⏺ Record 10s</button>
+      <button onclick="ingest()">⬆ Ingest 1 window</button>
     </div>
     <div class="muted" id="ingest-status" style="margin-top:6px"></div>
   </div>
 
   <!-- Panel B -->
   <div class="panel">
-    <h2>B · Unified Namespace (live)</h2>
+    <h2>B · Unified Namespace (ISA-95 topic tree)</h2>
     <div id="tree"></div>
   </div>
 
@@ -121,19 +150,54 @@ const BASE = "{{ base }}";
 const store = {};       // topic -> payload
 const agentLatest = {}; // agent -> latest event
 
+// --- theme ---
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('theme-toggle').textContent = t==='light' ? '☀' : '🌙';
+}
+function toggleTheme(){
+  const next = document.documentElement.getAttribute('data-theme')==='light' ? 'dark' : 'light';
+  localStorage.setItem('theme', next); applyTheme(next);
+}
+applyTheme(localStorage.getItem('theme') || 'dark');
+
+// --- Edge Impulse key (browser-held) ---
+const keyEl = document.getElementById('ei-key');
+keyEl.value = localStorage.getItem('ei_api_key') || '';
+function saveKey(){ localStorage.setItem('ei_api_key', keyEl.value.trim()); }
+function apiKey(){ return keyEl.value.trim(); }
+
 function force() {
   const fault = document.getElementById('fault').value;
   fetch('/api/force_anomaly', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({fault: fault || null})});
 }
+function setStatus(msg){ document.getElementById('ingest-status').textContent = msg; }
+
 function ingest() {
+  if(!apiKey()){ setStatus('✗ enter your Edge Impulse API key first'); return; }
   const label = document.getElementById('label').value;
-  document.getElementById('ingest-status').textContent = 'ingesting…';
+  setStatus('ingesting 1 window…');
   fetch('/api/ingest', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({label})}).then(r=>r.json()).then(d=>{
-      document.getElementById('ingest-status').textContent =
-        d.ok ? `✓ sent '${label}' to Edge Impulse (HTTP ${d.status})` : `✗ ${d.error||'failed'}`;
-    });
+    body: JSON.stringify({label, api_key: apiKey()})}).then(r=>r.json()).then(d=>{
+      setStatus(d.ok ? `✓ sent '${label}' (${d.samples} samples, HTTP ${d.status})` : `✗ ${d.error||'failed'}`);
+    }).catch(e=>setStatus('✗ '+e));
+}
+
+function record() {
+  if(!apiKey()){ setStatus('✗ enter your Edge Impulse API key first'); return; }
+  const label = document.getElementById('label').value;
+  const btn = document.getElementById('rec-btn');
+  const secs = 10; btn.disabled = true;
+  let left = secs;
+  setStatus(`⏺ recording '${label}'… ${left}s`);
+  const timer = setInterval(()=>{ left--; if(left>0) setStatus(`⏺ recording '${label}'… ${left}s`); }, 1000);
+  fetch('/api/record', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({label, seconds: secs, api_key: apiKey()})}).then(r=>r.json()).then(d=>{
+      clearInterval(timer); btn.disabled = false;
+      setStatus(d.ok ? `✓ recorded '${label}' — ${d.windows} windows / ${d.samples} samples to Edge Impulse (HTTP ${d.status})`
+                     : `✗ ${d.error||'failed'}`);
+    }).catch(e=>{ clearInterval(timer); btn.disabled = false; setStatus('✗ '+e); });
 }
 
 function fmt(n, d=2){ return (n===undefined||n===null)?'–':Number(n).toFixed(d); }
@@ -155,12 +219,48 @@ function drawWave(axis){
 
 function shortTopic(t){ return t.startsWith(BASE) ? t.slice(BASE.length+1) : t; }
 
+// --- UNS topic tree (nested by '/') ---
+function buildTree(topics){
+  const root = {children:{}};
+  topics.forEach(t=>{
+    const parts = t.split('/');
+    let node = root;
+    parts.forEach((p,i)=>{
+      node.children[p] = node.children[p] || {children:{}};
+      node = node.children[p];
+      if(i===parts.length-1) node.topic = t;
+    });
+  });
+  return root;
+}
+function renderNode(name, node){
+  const keys = Object.keys(node.children).sort();
+  if(node.topic && keys.length===0){
+    const d = document.createElement('div'); d.className='leaf';
+    d.innerHTML = `<span class="seg">${name}</span>`;
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(store[node.topic]);
+    d.appendChild(pre);
+    return d;
+  }
+  const det = document.createElement('details'); det.open = true;
+  const sum = document.createElement('summary'); sum.textContent = name;
+  det.appendChild(sum);
+  keys.forEach(k=>{
+    const child = renderNode(k, node.children[k]);
+    child.classList.add('node');
+    det.appendChild(child);
+  });
+  return det;
+}
 function renderTree(){
-  const el=document.getElementById('tree'); el.innerHTML='';
-  Object.keys(store).sort().forEach(t=>{
-    const d=document.createElement('div'); d.className='tree-item';
-    d.innerHTML=`<div class="t">${shortTopic(t)}</div><pre>${JSON.stringify(store[t])}</pre>`;
-    el.appendChild(d);
+  const el = document.getElementById('tree'); el.innerHTML='';
+  const tree = buildTree(Object.keys(store));
+  const topKeys = Object.keys(tree.children).sort();
+  topKeys.forEach(k=>{
+    const node = renderNode(k, tree.children[k]);
+    node.classList.add('node','root');
+    el.appendChild(node);
   });
 }
 
@@ -175,6 +275,22 @@ function renderAgents(){
       <div class="d">${e.decision?JSON.stringify(e.decision):''}</div>`;
     el.appendChild(d);
   });
+}
+
+function updateModelInfo(){
+  const m = store[BASE+'/health/model']; const el=document.getElementById('model-info');
+  if(!m){ el.textContent='model: –'; return; }
+  const live = m.backend==='brick' || m.backend==='eim';
+  const badge = `<span class="badge" style="background:${live?'var(--ok)':'var(--warn)'};color:#0d1117">`
+              + `${live?'LIVE EI':'BASELINE'}</span>`;
+  let extra = '';
+  if(m.backend==='brick'){
+    extra = ` · ${m.frequency||'?'} Hz · ${m.input_features||'?'} features`;
+  } else if(m.backend==='statistical'){
+    extra = m.ready ? ' · warmed up' : ' · warming up…';
+  }
+  el.innerHTML = `${badge} model: <b>${m.version||m.backend}</b>${extra}`
+              + (m.note?` <span class="muted">— ${m.note}</span>`:'');
 }
 
 function updatePanelA(){
@@ -222,7 +338,7 @@ es.onmessage = (ev)=>{
   if(m.kind==='agent'){ agentLatest[m.payload.agent]=m.payload; renderAgents(); return; }
   // uns
   store[m.topic]=m.payload;
-  renderTree(); updatePanelA(); updatePanelD(); updateStatePill();
+  renderTree(); updatePanelA(); updatePanelD(); updateStatePill(); updateModelInfo();
 };
 </script>
 </body>

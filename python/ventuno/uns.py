@@ -17,6 +17,7 @@ BASE = CONFIG.uns_base
 RAW = f"{BASE}/vibration/raw"                 # {ts, fs_hz, axis:{x[],y[],z[]}, rpm}
 FEATURES = f"{BASE}/vibration/features"       # {ts, rms, kurtosis, crest, band_energy[]}
 ANOMALY = f"{BASE}/health/anomaly"            # {ts, anomaly_score, threshold, verdict, model_ver}
+MODEL = f"{BASE}/health/model"                # retained {backend, version, ready, frequency, input_features, note}
 STATE = f"{BASE}/health/state"                # retained {state, ts}
 EDGE_STATUS = f"{BASE}/edge/status"           # retained + LWT {online, app_ver}
 

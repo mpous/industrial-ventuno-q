@@ -40,6 +40,14 @@ class StatisticalModel:
         z = np.abs((vec - self._mean) / self._std)
         return float(np.tanh(np.mean(z) / 3.0))
 
+    def info(self) -> dict:
+        return {
+            "backend": "statistical",
+            "version": self.version,
+            "ready": self.ready,
+            "note": "z-distance baseline (no Edge Impulse model deployed)",
+        }
+
 
 class EIModel:
     version = "eim"
@@ -70,6 +78,14 @@ class EIModel:
         except Exception:
             pass
 
+    def info(self) -> dict:
+        return {
+            "backend": "eim",
+            "version": self.version,
+            "ready": True,
+            "note": "Edge Impulse .eim runner",
+        }
+
 
 class BrickModel:
     """App Lab ``vibration_anomaly_detection`` brick (board-only).
@@ -97,6 +113,8 @@ class BrickModel:
             start()
         info = self._brick.get_model_info()
         freq = int(getattr(info, "frequency", 0) or 0)
+        self._freq = freq
+        self._features = int(getattr(info, "input_features_count", 0) or 0)
         self.version = f"brick-vibration:{freq}Hz"
 
     def _capture(self, anomaly_score: float, classification: dict | None = None) -> None:
@@ -126,6 +144,16 @@ class BrickModel:
                 stop()
             except Exception:
                 pass
+
+    def info(self) -> dict:
+        return {
+            "backend": "brick",
+            "version": self.version,
+            "ready": True,
+            "frequency": self._freq,
+            "input_features": self._features,
+            "note": "App Lab vibration_anomaly_detection brick (live Edge Impulse inference)",
+        }
 
 
 def build_model(backend: str, eim_path: str):

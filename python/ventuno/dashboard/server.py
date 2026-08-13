@@ -2,7 +2,7 @@
 
 Subscribes to the whole UNS + agent traces, keeps the latest state, and streams
 updates to the browser. Four panels:
-  A - vibration & real-time inference (+ Edge Impulse ingest, server-side key)
+  A - vibration & real-time inference (+ Edge Impulse record/ingest, UI-entered key)
   B - UNS live topic tree
   C - agents thinking (context, reasoning, memory) + A2A trace timeline
   D - manufacturing KPIs (OEE / time / cost / production)
@@ -29,6 +29,8 @@ _state: dict[str, dict] = {}
 _agent_events: list[dict] = []
 # Last raw window (for Panel A waveform + EI ingestion).
 _last_raw: dict = {}
+# Active EI recording session (full-res windows collected server-side).
+_record: dict = {"active": False, "buf": [], "target": 0}
 # Connected SSE clients.
 _subscribers: list[queue.Queue] = []
 _lock = threading.Lock()
@@ -53,6 +55,10 @@ def _on_uns(topic: str, payload: dict) -> None:
     global _last_raw
     if topic == uns.RAW:
         _last_raw = payload
+        # If a recording session is active, keep the FULL-res window for EI.
+        with _lock:
+            if _record["active"] and len(_record["buf"]) < _record["target"]:
+                _record["buf"].append(payload)
         # Downsample the waveform for the browser (don't ship 2000 pts/axis).
         axis = payload.get("axis", {})
         step = max(1, len(axis.get("x", [])) // 200)
@@ -95,23 +101,12 @@ def api_force_anomaly():
     return jsonify({"ok": True, "fault": fault})
 
 
-@app.route("/api/ingest", methods=["POST"])
-def api_ingest():
-    """Panel A retraining (ingest only): push the last raw window to Edge Impulse.
+def _ei_upload(values: list[list[float]], fs: float, label: str, api_key: str) -> tuple[bool, int, str]:
+    """POST one labeled multi-axis sample to the Edge Impulse Ingestion API.
 
-    The API key is read server-side from config/env and never exposed to the
-    browser. Retraining/building happens in EI Studio afterwards.
+    ``api_key`` is supplied by the browser per request (never stored server-side)
+    and used only for this outbound call. ``values`` is a list of [x, y, z] rows.
     """
-    if not CONFIG.ei_api_key:
-        return jsonify({"ok": False, "error": "EI_API_KEY not set on server"}), 400
-    if not _last_raw.get("axis"):
-        return jsonify({"ok": False, "error": "no vibration window captured yet"}), 400
-
-    label = (request.json or {}).get("label", "normal")
-    axis = _last_raw["axis"]
-    n = len(axis["x"])
-    values = [[axis["x"][i], axis["y"][i], axis["z"][i]] for i in range(n)]
-    fs = _last_raw.get("fs_hz", CONFIG.sim_fs)
     body = {
         "protected": {"ver": "v1", "alg": "none", "iat": int(time.time())},
         "signature": "0" * 64,
@@ -127,19 +122,93 @@ def api_ingest():
             "values": values,
         },
     }
+    resp = requests.post(
+        f"{CONFIG.ei_ingestion_url}/api/training/data",
+        headers={
+            "x-api-key": api_key,
+            "x-label": label,
+            "x-file-name": f"{label}.{int(time.time())}.json",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps(body),
+        timeout=30,
+    )
+    return resp.ok, resp.status_code, resp.text[:200]
+
+
+def _rows_from_window(win: dict) -> list[list[float]]:
+    axis = win.get("axis", {})
+    x, y, z = axis.get("x", []), axis.get("y", []), axis.get("z", [])
+    n = min(len(x), len(y), len(z))
+    return [[x[i], y[i], z[i]] for i in range(n)]
+
+
+@app.route("/api/ingest", methods=["POST"])
+def api_ingest():
+    """Push the last single raw window to Edge Impulse (ingest only).
+
+    The API key is entered in the UI and sent with the request (browser-held,
+    per the project's chosen key handling); it is never stored on the server.
+    """
+    data = request.json or {}
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key:
+        return jsonify({"ok": False, "error": "Edge Impulse API key required (enter it in the panel)"}), 400
+    if not _last_raw.get("axis"):
+        return jsonify({"ok": False, "error": "no vibration window captured yet"}), 400
+
+    label = data.get("label", "normal")
+    rows = _rows_from_window(_last_raw)
+    fs = _last_raw.get("fs_hz", CONFIG.sim_fs)
     try:
-        resp = requests.post(
-            f"{CONFIG.ei_ingestion_url}/api/training/data",
-            headers={
-                "x-api-key": CONFIG.ei_api_key,
-                "x-label": label,
-                "x-file-name": f"{label}.{int(time.time())}.json",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps(body),
-            timeout=30,
-        )
-        return jsonify({"ok": resp.ok, "status": resp.status_code, "label": label, "body": resp.text[:200]})
+        ok, status, text = _ei_upload(rows, fs, label, api_key)
+        return jsonify({"ok": ok, "status": status, "label": label, "samples": len(rows), "body": text})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+@app.route("/api/record", methods=["POST"])
+def api_record():
+    """Capture ~N seconds of live vibration and upload it as one labeled sample.
+
+    Collects full-resolution raw windows server-side for the requested duration,
+    stitches them into a single time series, and pushes to Edge Impulse with the
+    UI-selected label and the UI-entered API key.
+    """
+    data = request.json or {}
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key:
+        return jsonify({"ok": False, "error": "Edge Impulse API key required (enter it in the panel)"}), 400
+    label = data.get("label", "normal")
+    seconds = max(1, min(30, int(data.get("seconds", 10))))
+    # Windows arrive at ~1/s (sim_window/sim_fs); target that many windows.
+    per_s = max(1, round(CONFIG.sim_fs / CONFIG.sim_window))
+    target = seconds * per_s
+
+    with _lock:
+        _record.update(active=True, buf=[], target=target)
+    deadline = time.monotonic() + seconds + 5.0
+    while time.monotonic() < deadline:
+        with _lock:
+            done = len(_record["buf"]) >= target
+        if done:
+            break
+        time.sleep(0.1)
+    with _lock:
+        _record["active"] = False
+        frames = list(_record["buf"])
+
+    if not frames:
+        return jsonify({"ok": False, "error": "no vibration captured (is the simulator running?)"}), 400
+
+    rows: list[list[float]] = []
+    for win in frames:
+        rows.extend(_rows_from_window(win))
+    fs = frames[0].get("fs_hz", CONFIG.sim_fs)
+    try:
+        ok, status, text = _ei_upload(rows, fs, label, api_key)
+        return jsonify({"ok": ok, "status": status, "label": label,
+                        "seconds": seconds, "windows": len(frames), "samples": len(rows), "body": text})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
 

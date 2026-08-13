@@ -35,6 +35,13 @@ class EdgeInference:
         self.mqtt.subscribe(uns.RAW, self._on_raw)
         self.mqtt.subscribe(uns.STATE, self._on_state)
         self.mqtt.publish(uns.STATE, {"state": uns.STATE_HEALTHY, "ts": now_ts()}, retain=True)
+        self._publish_model_info()
+
+    def _publish_model_info(self) -> None:
+        info = getattr(self.model, "info", None)
+        payload = info() if callable(info) else {"backend": self.cfg.model_backend, "version": self.model.version}
+        payload["ts"] = now_ts()
+        self.mqtt.publish(uns.MODEL, payload, retain=True)
 
     def _on_state(self, topic: str, payload: dict) -> None:
         self._current_state = payload.get("state", self._current_state)
@@ -47,6 +54,23 @@ class EdgeInference:
         summary, vec = compute_features(axis, fs)
         summary.update({"ts": now_ts()})
         self.mqtt.publish(uns.FEATURES, summary)
+
+        # While the machine is stopped for repair it emits no vibration; don't
+        # let the model read the flat window as an anomaly. Report a clean score.
+        if self._current_state == uns.STATE_MAINTENANCE:
+            self._consecutive = 0
+            self.mqtt.publish(
+                uns.ANOMALY,
+                {
+                    "ts": now_ts(),
+                    "anomaly_score": 0.0,
+                    "threshold": self.cfg.anomaly_threshold,
+                    "verdict": False,
+                    "consecutive": 0,
+                    "model_ver": self.model.version,
+                },
+            )
+            return
 
         score = float(self.model.score(vec, raw_axis=axis, fs=fs))
         threshold = self.cfg.anomaly_threshold
