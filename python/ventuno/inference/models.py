@@ -15,6 +15,9 @@ uses the raw ``raw_axis`` samples (it does its own DSP internally).
 """
 from __future__ import annotations
 
+import threading
+import time
+
 import numpy as np
 
 from ..logbus import get_logger
@@ -112,6 +115,8 @@ class BrickModel:
         self._brick = VibrationAnomalyDetection(anomaly_detection_threshold=0.0)
         self._last_score = 0.0
         self._capture_count = 0
+        self._fed_count = 0
+        self._stop = threading.Event()
         self._brick.on_anomaly(self._capture)
         start = getattr(self._brick, "start", None)
         if callable(start):
@@ -125,6 +130,25 @@ class BrickModel:
               f"input_features={self._features}")
         log.info("vibration brick ready: freq=%dHz input_features=%d", freq, self._features)
 
+        # The brick's loop() is a blocking event-pump (normally driven by
+        # App.run()). This app runs Flask instead, so we pump it here in a
+        # daemon thread: it parks inside loop() until samples fed via
+        # accumulate_samples() complete a window, fires on_anomaly, then repeats.
+        # Keeping it off the caller's thread is what stops score() from freezing
+        # the MQTT network loop.
+        self._pump = threading.Thread(target=self._run_loop, name="brick-loop", daemon=True)
+        self._pump.start()
+
+    def _run_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._brick.loop()
+            except Exception as exc:  # keep pumping across transient brick errors
+                log.exception("brick loop() error: %s", exc)
+                time.sleep(0.5)
+            else:
+                time.sleep(0.01)  # avoid a hot spin if loop() returns immediately
+
     def _capture(self, anomaly_score: float, classification: dict | None = None) -> None:
         self._last_score = float(anomaly_score)
         self._capture_count += 1
@@ -136,27 +160,28 @@ class BrickModel:
             return float(np.tanh(self._last_score / 3.0))
         x, y, z = raw_axis.get("x", []), raw_axis.get("y", []), raw_axis.get("z", [])
         n = min(len(x), len(y), len(z))
-        before = self._capture_count
         if n:
             interleaved: list[float] = []
             for i in range(n):
                 interleaved.extend((x[i], y[i], z[i]))
             self._brick.accumulate_samples(interleaved)
-            log.debug("fed %d interleaved samples (%d/axis); draining loop()", len(interleaved), n)
-            # Drain any full windows the sliding buffer produced this push.
-            for _ in range(4):
-                self._brick.loop()
-        if self._capture_count == before:
-            print(f"[brick] fed {n} samples/axis; on_anomaly did NOT fire this window "
-                  f"(last_score={self._last_score})")
-            log.warning("fed %d samples/axis but on_anomaly did NOT fire "
-                        "(last_score=%s, need input_features=%d)",
-                        n, self._last_score, self._features)
+            self._fed_count += 1
+            log.debug("fed %d interleaved samples (%d/axis); captured=%d",
+                      len(interleaved), n, self._capture_count)
+            # on_anomaly fires from the pump thread once enough samples span a
+            # full window. Warn once if we've fed several windows and it still
+            # hasn't fired — usually a feature-count/axis/rate mismatch.
+            if self._capture_count == 0 and self._fed_count == 5:
+                log.warning("fed %d windows (%d samples/axis each) but on_anomaly "
+                            "has not fired yet; brick needs input_features=%d "
+                            "(check window size, axis order, and rate)",
+                            self._fed_count, n, self._features)
         # Raw EI anomaly score is a distance (can exceed 1); squash to 0..1 to
         # match the threshold scale the rest of the pipeline expects.
         return float(np.tanh(self._last_score / 3.0))
 
     def stop(self) -> None:
+        self._stop.set()
         stop = getattr(self._brick, "stop", None)
         if callable(stop):
             try:
