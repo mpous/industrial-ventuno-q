@@ -17,9 +17,12 @@ import numpy as np
 
 from ..config import CONFIG
 from ..mqtt_client import MqttClient, now_ts
+from ..logbus import get_logger
 from .. import uns
 from ..features import compute_features
 from .models import build_model
+
+log = get_logger("edge")
 
 
 class EdgeInference:
@@ -40,6 +43,8 @@ class EdgeInference:
         info = info() if callable(info) else {"version": self.model.version}
         print(f"[edge] inference up: backend={self.cfg.model_backend} model={info} "
               f"threshold={self.cfg.anomaly_threshold} persist={self.cfg.anomaly_persist}")
+        log.info("inference up: backend=%s threshold=%s persist=%s model=%s",
+                 self.cfg.model_backend, self.cfg.anomaly_threshold, self.cfg.anomaly_persist, info)
 
     def _publish_model_info(self) -> None:
         info = getattr(self.model, "info", None)
@@ -49,12 +54,16 @@ class EdgeInference:
 
     def _on_state(self, topic: str, payload: dict) -> None:
         self._current_state = payload.get("state", self._current_state)
+        log.debug("state -> %s", self._current_state)
 
     def _on_raw(self, topic: str, payload: dict) -> None:
         axis = payload.get("axis", {})
         if not axis.get("x"):
+            log.warning("raw window with no axis data (keys=%s); skipping", list(payload.keys()))
             return
         fs = int(payload.get("fs_hz", self.cfg.sim_fs))
+        log.debug("raw window recv: n=%d/axis fs=%d state=%s label=%s",
+                  len(axis.get("x", [])), fs, self._current_state, payload.get("_label"))
         summary, vec = compute_features(axis, fs)
         summary.update({"ts": now_ts()})
         self.mqtt.publish(uns.FEATURES, summary)
@@ -63,6 +72,7 @@ class EdgeInference:
         # let the model read the flat window as an anomaly. Report a clean score.
         if self._current_state in (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING):
             self._consecutive = 0
+            log.debug("state=%s -> reporting clean score 0.0 (machine down)", self._current_state)
             self.mqtt.publish(
                 uns.ANOMALY,
                 {
@@ -83,6 +93,8 @@ class EdgeInference:
         verdict = self._consecutive >= self.cfg.anomaly_persist
         print(f"[edge] score={score:.4f} thr={threshold} over={over} "
               f"consecutive={self._consecutive}/{self.cfg.anomaly_persist} verdict={verdict}")
+        log.info("score=%.4f thr=%s over=%s consecutive=%d/%d verdict=%s",
+                 score, threshold, over, self._consecutive, self.cfg.anomaly_persist, verdict)
 
         self.mqtt.publish(
             uns.ANOMALY,
@@ -101,6 +113,7 @@ class EdgeInference:
             new_state = uns.STATE_ANOMALY if verdict else uns.STATE_HEALTHY
             if new_state != self._current_state:
                 self._current_state = new_state
+                log.info("state transition -> %s (verdict=%s)", new_state, verdict)
                 self.mqtt.publish(uns.STATE, {"state": new_state, "ts": now_ts()}, retain=True)
 
     def stop(self) -> None:

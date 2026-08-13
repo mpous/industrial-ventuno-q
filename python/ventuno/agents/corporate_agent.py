@@ -14,9 +14,12 @@ import uuid
 
 from ..config import CONFIG
 from ..mqtt_client import now_ts
+from ..logbus import get_logger
 from .. import uns
 from .base import AgentBase
 from .a2a import A2AServer
+
+log = get_logger("corporate")
 
 
 class CorporateAgent(AgentBase):
@@ -40,8 +43,10 @@ class CorporateAgent(AgentBase):
         self.connect()
         self.server.start(self.cfg.a2a_host, self.cfg.corp_port)
         print(f"[corporate] A2A card at {self.cfg.corp_url}/.well-known/agent-card.json")
+        log.info("A2A card at %s/.well-known/agent-card.json", self.cfg.corp_url)
 
     def _handle(self, text: str) -> str:
+        log.info("A2A request recv (%d chars)", len(text or ""))
         try:
             wo = json.loads(text)
         except ValueError:
@@ -64,6 +69,8 @@ class CorporateAgent(AgentBase):
         # Publish window + drive machine into maintenance.
         self.mqtt.publish(uns.WINDOW, window, retain=True)
         self.mqtt.publish(uns.STATE, {"state": uns.STATE_MAINTENANCE, "ts": now_ts()}, retain=True)
+        log.info("opened window %s for WO %s -> state=maintenance (%ds)",
+                 window_id, wo.get("id"), int(self.cfg.maint_duration_s))
 
         threading.Thread(target=self._close_later, args=(window,), daemon=True).start()
         return json.dumps(window)
@@ -77,6 +84,7 @@ class CorporateAgent(AgentBase):
         self.publish_trace("repairing", {"window_id": window["id"]},
                            "Maintenance window elapsed; technician finishing the repair before restart.",
                            window)
+        log.info("window %s elapsed -> state=repairing", window["id"])
         time.sleep(3.0)
         window = {**window, "status": "closed", "end": now_ts()}
         self.mqtt.publish(uns.WINDOW, window, retain=True)
@@ -85,6 +93,7 @@ class CorporateAgent(AgentBase):
         self.publish_trace("close_window", {"window_id": window["id"]},
                            "Repair complete; returning machine to service.",
                            window)
+        log.info("window %s closed -> state=healthy", window["id"])
 
 
 def main() -> None:

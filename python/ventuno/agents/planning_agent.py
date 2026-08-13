@@ -12,10 +12,13 @@ import time
 
 from ..config import CONFIG
 from ..mqtt_client import now_ts
+from ..logbus import get_logger
 from .. import uns
 from .base import AgentBase
 from .a2a import A2AServer
 from .llm import build_llm
+
+log = get_logger("planning")
 
 SYSTEM = (
     "You are a production planning agent. A machine is going into a maintenance "
@@ -50,6 +53,7 @@ class PlanningAgent(AgentBase):
         self.mqtt.subscribe(uns.KPI_OEE, self._on_oee)
         self.server.start(self.cfg.a2a_host, self.cfg.plan_port)
         print(f"[planning] A2A card at {self.cfg.plan_url}/.well-known/agent-card.json")
+        log.info("A2A card at %s/.well-known/agent-card.json", self.cfg.plan_url)
 
     def _on_oee(self, topic: str, payload: dict) -> None:
         self._latest_oee = float(payload.get("oee", self._latest_oee))
@@ -61,6 +65,7 @@ class PlanningAgent(AgentBase):
         if not window_id or window_id in self._handled:
             return
         self._handled.add(window_id)
+        log.info("new window %s -> re-planning with LLM (oee=%.2f)", window_id, self._latest_oee)
 
         context = {
             "maintenance_window": {"id": window_id, "start": payload.get("start"), "end": payload.get("end")},
@@ -69,10 +74,13 @@ class PlanningAgent(AgentBase):
             "cause": payload.get("cause"),
             "affected_orders": ["WO-1001", "WO-1002"],
         }
+        t0 = time.monotonic()
         raw, reasoning = self.llm.complete(SYSTEM, json.dumps(context))
+        log.info("LLM replan returned in %.1fs (%d chars)", time.monotonic() - t0, len(raw or ""))
         try:
             plan = json.loads(raw)
         except ValueError:
+            log.warning("LLM replan response not valid JSON; using fallback plan")
             plan = {"plan_id": f"plan-{window_id}", "actions": [raw[:200]], "affected_orders": []}
         plan["ts"] = now_ts()
 
@@ -80,6 +88,7 @@ class PlanningAgent(AgentBase):
         self.publish_trace("replan_production", context, reasoning, plan)
         self.mqtt.publish(uns.PLAN, plan)
         print(f"[planning] published plan {plan.get('plan_id')} for window {window_id}")
+        log.info("published plan %s for window %s", plan.get("plan_id"), window_id)
 
 
 def main() -> None:

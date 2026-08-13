@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..logbus import get_logger
+
+log = get_logger("model")
+
 
 class StatisticalModel:
     version = "statistical-0.1"
@@ -119,11 +123,13 @@ class BrickModel:
         self.version = f"brick-vibration:{freq}Hz"
         print(f"[brick] vibration model ready: freq={freq}Hz "
               f"input_features={self._features}")
+        log.info("vibration brick ready: freq=%dHz input_features=%d", freq, self._features)
 
     def _capture(self, anomaly_score: float, classification: dict | None = None) -> None:
         self._last_score = float(anomaly_score)
         self._capture_count += 1
         print(f"[brick] on_anomaly #{self._capture_count} raw_score={anomaly_score}")
+        log.info("on_anomaly #%d raw_score=%s", self._capture_count, anomaly_score)
 
     def score(self, vec: np.ndarray, raw_axis: dict | None = None, fs: int | None = None) -> float:
         if not raw_axis:
@@ -136,12 +142,16 @@ class BrickModel:
             for i in range(n):
                 interleaved.extend((x[i], y[i], z[i]))
             self._brick.accumulate_samples(interleaved)
+            log.debug("fed %d interleaved samples (%d/axis); draining loop()", len(interleaved), n)
             # Drain any full windows the sliding buffer produced this push.
             for _ in range(4):
                 self._brick.loop()
         if self._capture_count == before:
             print(f"[brick] fed {n} samples/axis; on_anomaly did NOT fire this window "
                   f"(last_score={self._last_score})")
+            log.warning("fed %d samples/axis but on_anomaly did NOT fire "
+                        "(last_score=%s, need input_features=%d)",
+                        n, self._last_score, self._features)
         # Raw EI anomaly score is a distance (can exceed 1); squash to 0..1 to
         # match the threshold scale the rest of the pipeline expects.
         return float(np.tanh(self._last_score / 3.0))

@@ -19,7 +19,10 @@ import time
 
 from ..config import CONFIG
 from ..mqtt_client import MqttClient, now_ts
+from ..logbus import get_logger
 from .. import uns
+
+log = get_logger("kpi")
 
 TARGET_RATE = 60.0            # units / min at full performance
 RUNNING_COST_PER_MIN = 2.0    # energy + labour while producing
@@ -57,10 +60,14 @@ class KpiService:
         self.mqtt.connect()
         self.mqtt.subscribe(uns.STATE, self._on_state)
         self._publish()
+        log.info("kpi service up (state=%s)", self.state)
 
     def _on_state(self, topic: str, payload: dict) -> None:
         self._accumulate()
-        self.state = payload.get("state", self.state)
+        new = payload.get("state", self.state)
+        if new != self.state:
+            log.info("state %s -> %s", self.state, new)
+        self.state = new
 
     def _accumulate(self) -> None:
         now = time.monotonic()

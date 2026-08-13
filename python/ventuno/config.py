@@ -92,6 +92,9 @@ class Config:
     # --- Dashboard ---
     dashboard_port: int = field(default_factory=lambda: _get_int("DASHBOARD_PORT", 5001))
 
+    # --- Logging ---
+    log_level: str = field(default_factory=lambda: _get("LOG_LEVEL", "INFO"))  # DEBUG for per-message pub/sub
+
     # --- Edge Impulse ingestion (Panel A re-training, ingest only) ---
     ei_api_key: str = field(default_factory=lambda: _get("EI_API_KEY", ""))
     ei_ingestion_url: str = field(default_factory=lambda: _get("EI_INGESTION_URL", "https://ingestion.edgeimpulse.com"))

@@ -19,7 +19,10 @@ from flask import Flask, Response, jsonify, render_template, request
 
 from ..config import CONFIG
 from ..mqtt_client import MqttClient, now_ts
+from ..logbus import get_logger
 from .. import uns
+
+log = get_logger("dashboard")
 
 app = Flask(__name__)
 
@@ -135,6 +138,7 @@ def api_state():
 def api_force_anomaly():
     """Panel A demo trigger: ask the simulator to inject a fault now."""
     fault = (request.json or {}).get("fault")
+    log.info("force_anomaly requested via UI (fault=%s)", fault or "random")
     _mqtt.publish("agents/dashboard/command", {"cmd": "force_anomaly", "fault": fault, "ts": now_ts()})
     return jsonify({"ok": True, "fault": fault})
 
@@ -279,6 +283,7 @@ def start_mqtt() -> None:
     # One wildcard covers the whole enterprise: every ISA-95 level plus the
     # agent traces now published inside the UNS.
     _mqtt.subscribe(uns.ENTERPRISE_WILDCARD, _on_uns)
+    log.info("dashboard subscribed to %s", uns.ENTERPRISE_WILDCARD)
 
 
 def main() -> None:

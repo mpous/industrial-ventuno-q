@@ -14,8 +14,11 @@ import time
 
 from ..config import CONFIG
 from ..mqtt_client import MqttClient, now_ts
+from ..logbus import get_logger
 from .. import uns
 from .conveyor import ConveyorModel, FAULT_MODES
+
+log = get_logger("sim")
 
 
 class VibrationSimulator:
@@ -38,21 +41,28 @@ class VibrationSimulator:
 
     def force_anomaly(self, fault: str | None = None) -> None:
         """Deterministic trigger for live demos (called by the dashboard)."""
+        log.info("force_anomaly requested (fault=%s)", fault or "random")
+        if self._under_maintenance or self._active_fault is not None:
+            log.warning("force_anomaly ignored: under_maintenance=%s active_fault=%s",
+                        self._under_maintenance, self._active_fault)
         self._forced_fault = fault
         self._force.set()
 
     def _on_state(self, topic: str, payload: dict) -> None:
         state = payload.get("state")
+        log.info("state -> %s", state)
         if state in (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING):
             self._under_maintenance = True
             if self._active_fault:
                 print(f"[sim] {state} -> clearing fault '{self._active_fault}' (repaired)")
+                log.info("%s -> clearing fault '%s' (repaired)", state, self._active_fault)
                 self._active_fault = None
                 self._next_anomaly_at = time.monotonic() + self._sample_interval()
         else:
             # Repair window closed (healthy) -> machine powers back up.
             if self._under_maintenance:
                 print("[sim] maintenance closed -> machine running again")
+                log.info("maintenance closed -> machine running again")
             self._under_maintenance = False
 
     def _maybe_trigger(self) -> None:
@@ -69,6 +79,7 @@ class VibrationSimulator:
         self._active_fault = fault
         self._severity = float(self.rng.uniform(0.7, 1.3))
         print(f"[sim] injecting fault '{fault}' severity={self._severity:.2f}")
+        log.info("injecting fault '%s' severity=%.2f", fault, self._severity)
 
     def start(self) -> None:
         self.mqtt.connect()
@@ -77,8 +88,11 @@ class VibrationSimulator:
         self.mqtt.publish(uns.EDGE_STATUS, {"online": True, "app_ver": "0.1.0", "ts": now_ts()}, retain=True)
         thread = threading.Thread(target=self._run, name="simulator", daemon=True)
         thread.start()
+        log.info("simulator started; publishing raw to %s every %.2fs",
+                 uns.RAW, self.cfg.sim_window / self.cfg.sim_fs)
 
     def _on_command(self, topic: str, payload: dict) -> None:
+        log.debug("command recv: %s", payload)
         if payload.get("cmd") == "force_anomaly":
             self.force_anomaly(payload.get("fault"))
 
@@ -86,6 +100,7 @@ class VibrationSimulator:
         n = self.cfg.sim_window
         fs = self.cfg.sim_fs
         window_period = n / fs  # real-time cadence
+        count = 0
         while not self._stop.is_set():
             t0 = time.monotonic()
             self._maybe_trigger()
@@ -108,6 +123,11 @@ class VibrationSimulator:
                     "_label": label,  # ground truth for dataset export
                 },
             )
+            count += 1
+            # Heartbeat every ~10 windows so the log shows the stream is alive
+            # without a line per second; DEBUG shows every publish via mqtt_client.
+            if count == 1 or count % 10 == 0:
+                log.info("published raw window #%d (label=%s, n=%d/axis)", count, label, n)
             elapsed = time.monotonic() - t0
             time.sleep(max(0.0, window_period - elapsed))
 
