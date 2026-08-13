@@ -34,26 +34,38 @@ react → window closes → machine repaired → healthy
 
 **MQTT** = broadcast state/events. **A2A** = directed task delegation between agents.
 
-## UNS topic tree
+## UNS topic tree (ISA-95 by level)
 
-Base: `acme/barcelona/packaging/line1/conveyor01`
+Each datum is published at the enterprise level that owns it, not all under the
+cell. Base cell path: `acme/barcelona/packaging/line1/conveyor01`.
 
 ```
-vibration/raw            {ts, fs_hz, axis:{x,y,z}, rpm}
-vibration/features       {ts, rms, kurtosis, crest, band_energy[]}
-health/anomaly           {ts, anomaly_score, threshold, verdict, model_ver}
-health/model       (r)   {backend, version, ready, frequency, input_features, note}
-health/state       (r)   {state: healthy|anomaly|maintenance, ts}
-edge/status      (r,lwt) {online, app_ver}
-maintenance/workorder    {id, cause_hypothesis, severity, decision, rationale}
-maintenance/window (r)   {id, start, end, status}
-production/plan          {plan_id, actions[], affected_orders[]}
-kpi/oee            (r)   {availability, performance, quality, oee}
-kpi/production     (r)   {rate_units_min, units_total, target_rate}
-kpi/cost           (r)   {running_cost, downtime_cost, maintenance_cost, currency}
-kpi/uptime         (r)   {operational_time_s, downtime_s, state}
+acme/                                              (enterprise)
+└─ barcelona/                                       (site)
+   ├─ maintenance/workorder   {id, cause_hypothesis, severity, decision, rationale}
+   ├─ maintenance/window (r)  {id, start, end, status}
+   ├─ kpi/cost           (r)  {running_cost, downtime_cost, maintenance_cost, currency}
+   ├─ agents/corporate/trace  (corporate/CMMS agent — site level)
+   └─ packaging/                                    (area)
+      └─ line1/                                      (line)
+         ├─ production/plan       {plan_id, actions[], affected_orders[]}
+         ├─ kpi/oee         (r)   {availability, performance, quality, oee}
+         ├─ kpi/production  (r)   {rate_units_min, units_total, target_rate}
+         ├─ kpi/uptime      (r)   {operational_time_s, downtime_s, state}
+         ├─ agents/planning/trace (production-planning agent — line level)
+         └─ conveyor01/                              (cell)
+            ├─ vibration/raw          {ts, fs_hz, axis:{x,y,z}, rpm}
+            ├─ vibration/features     {ts, rms, kurtosis, crest, band_energy[]}
+            ├─ health/anomaly         {ts, anomaly_score, threshold, verdict, model_ver}
+            ├─ health/model     (r)   {backend, version, ready, frequency, input_features, note}
+            ├─ health/state     (r)   {state: healthy|anomaly|maintenance, ts}
+            ├─ edge/status    (r,lwt) {online, app_ver}
+            └─ agents/maintenance/trace (edge-maintenance agent — cell level)
 ```
-Agent reasoning traces are published under `agents/<name>/trace` (dashboard telemetry, not UNS).
+
+Agent reasoning traces live **inside** the UNS at each agent's level (a compact
+marker shows in the tree; the full context/reasoning/memory feeds dashboard
+Panel C). The dashboard subscribes to the whole enterprise (`acme/#`).
 
 ## Run locally (laptop)
 

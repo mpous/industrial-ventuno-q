@@ -69,23 +69,63 @@ def _on_uns(topic: str, payload: dict) -> None:
         }
         _broadcast("raw", topic, light)
         return
+
+    # Agent reasoning traces now live INSIDE the UNS (at each agent's level).
+    # Route the full event to Panel C, and keep a compact marker in the tree so
+    # the hierarchy shows where each agent sits without the heavy memory blob.
+    if topic.endswith("/trace") and payload.get("agent"):
+        with _lock:
+            _agent_events.append(payload)
+            if len(_agent_events) > 200:
+                del _agent_events[0]
+        _broadcast("agent", topic, payload)
+        marker = {
+            "agent": payload.get("agent"),
+            "event": payload.get("event"),
+            "decision": payload.get("decision") or {},
+            "ts": payload.get("ts"),
+        }
+        _state[topic] = marker
+        _broadcast("uns", topic, marker)
+        return
+
     _state[topic] = payload
     _broadcast("uns", topic, payload)
 
 
-def _on_agent(topic: str, payload: dict) -> None:
-    if not payload.get("agent"):  # ignore command/control topics under agents/
-        return
-    with _lock:
-        _agent_events.append(payload)
-        if len(_agent_events) > 100:
-            del _agent_events[0]
-    _broadcast("agent", topic, payload)
+def _topics() -> dict:
+    """Named UNS topic paths for the browser, so panel lookups don't have to
+    reconstruct paths (topics live at different ISA-95 levels now)."""
+    return {
+        "raw": uns.RAW, "features": uns.FEATURES, "anomaly": uns.ANOMALY,
+        "model": uns.MODEL, "state": uns.STATE, "edge_status": uns.EDGE_STATUS,
+        "plan": uns.PLAN, "kpi_oee": uns.KPI_OEE, "kpi_production": uns.KPI_PRODUCTION,
+        "kpi_uptime": uns.KPI_UPTIME, "workorder": uns.WORKORDER, "window": uns.WINDOW,
+        "kpi_cost": uns.KPI_COST,
+    }
+
+
+def _llm_info() -> dict:
+    """Which LLM backend/model the agents use (surfaced in Panel C)."""
+    backend = CONFIG.llm_backend
+    if backend == "ollama":
+        label, model = "Ollama (local)", CONFIG.ollama_model
+    elif backend == "brick":
+        label, model = "App Lab LLM brick", CONFIG.ollama_model
+    else:
+        label, model = "Mock (deterministic)", "rule-based"
+    return {"backend": backend, "label": label, "model": model}
 
 
 @app.route("/")
 def index():
-    return render_template("index.html", base=uns.BASE)
+    return render_template(
+        "index.html",
+        base=uns.BASE,
+        enterprise=uns.ENTERPRISE,
+        topics=_topics(),
+        llm=_llm_info(),
+    )
 
 
 @app.route("/api/state")
@@ -238,8 +278,9 @@ def events():
 
 def start_mqtt() -> None:
     _mqtt.connect()
-    _mqtt.subscribe(uns.UNS_WILDCARD, _on_uns)
-    _mqtt.subscribe(uns.AGENTS_WILDCARD, _on_agent)
+    # One wildcard covers the whole enterprise: every ISA-95 level plus the
+    # agent traces now published inside the UNS.
+    _mqtt.subscribe(uns.ENTERPRISE_WILDCARD, _on_uns)
 
 
 def main() -> None:

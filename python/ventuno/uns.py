@@ -1,11 +1,22 @@
 """Unified Namespace topic contract (single source of truth).
 
-Plain hierarchical ISA-95 topics under a configurable base path
-(enterprise/site/area/line/cell). All payloads are JSON.
+Plain hierarchical **ISA-95** topics. Each datum is published at the level of the
+enterprise that actually owns it, rather than dumping everything under the cell:
 
-Agent reasoning traces are intentionally NOT under the UNS base path: they are
-demo telemetry for the dashboard, published under ``agents/`` so the UNS tree
-stays clean (state + events only).
+    enterprise / site / area / line / cell
+    acme       / barcelona / packaging / line1 / conveyor01
+
+* **Cell** (conveyor01)  - raw vibration, features, anomaly score, model info,
+  machine state, edge status. These belong to the physical asset.
+* **Line** (line1)       - production plan + the line's OEE / production-rate /
+  uptime KPIs. A line is planned and measured as a unit.
+* **Site** (barcelona)   - maintenance work orders + windows and the site-level
+  cost KPI. Maintenance and cost are business functions above a single machine.
+
+Agent reasoning traces live **inside the UNS** at the level each agent operates
+on (edge maintenance -> cell, production planning -> line, corporate/CMMS ->
+site), so the tree shows where each agent sits in the enterprise. Traces are
+published under an ``agents/<name>/trace`` leaf at that level.
 """
 from __future__ import annotations
 
@@ -13,34 +24,50 @@ from .config import CONFIG
 
 BASE = CONFIG.uns_base
 
-# --- Edge / machine ---
-RAW = f"{BASE}/vibration/raw"                 # {ts, fs_hz, axis:{x[],y[],z[]}, rpm}
-FEATURES = f"{BASE}/vibration/features"       # {ts, rms, kurtosis, crest, band_energy[]}
-ANOMALY = f"{BASE}/health/anomaly"            # {ts, anomaly_score, threshold, verdict, model_ver}
-MODEL = f"{BASE}/health/model"                # retained {backend, version, ready, frequency, input_features, note}
-STATE = f"{BASE}/health/state"                # retained {state, ts}
-EDGE_STATUS = f"{BASE}/edge/status"           # retained + LWT {online, app_ver}
+# --- ISA-95 levels (derived from the configured base path) ---
+_parts = BASE.split("/")
+ENTERPRISE = _parts[0]
+SITE = "/".join(_parts[:2]) if len(_parts) >= 2 else BASE
+AREA = "/".join(_parts[:3]) if len(_parts) >= 3 else SITE
+LINE = "/".join(_parts[:4]) if len(_parts) >= 4 else AREA
+CELL = BASE
 
-# --- Maintenance / business ---
-WORKORDER = f"{BASE}/maintenance/workorder"   # {id, cause_hypothesis, severity, decision, rationale, ts}
-WINDOW = f"{BASE}/maintenance/window"         # retained {id, start, end, status}
-PLAN = f"{BASE}/production/plan"              # {plan_id, actions[], affected_orders[], ts}
+# --- Cell level: the physical asset (conveyor01) ---
+RAW = f"{CELL}/vibration/raw"                 # {ts, fs_hz, axis:{x[],y[],z[]}, rpm}
+FEATURES = f"{CELL}/vibration/features"       # {ts, rms, kurtosis, crest, band_energy[]}
+ANOMALY = f"{CELL}/health/anomaly"            # {ts, anomaly_score, threshold, verdict, model_ver}
+MODEL = f"{CELL}/health/model"                # retained {backend, version, ready, frequency, input_features, note}
+STATE = f"{CELL}/health/state"                # retained {state, ts}
+EDGE_STATUS = f"{CELL}/edge/status"           # retained + LWT {online, app_ver}
+VISION = f"{CELL}/vision/inspection"          # {ts, defect, confidence, bbox[]}
 
-# --- KPIs ---
-KPI_OEE = f"{BASE}/kpi/oee"                   # retained {availability, performance, quality, oee, ts}
-KPI_PRODUCTION = f"{BASE}/kpi/production"     # retained {rate_units_min, units_total, target_rate, ts}
-KPI_COST = f"{BASE}/kpi/cost"                 # retained {running_cost, downtime_cost, maintenance_cost, currency, ts}
-KPI_UPTIME = f"{BASE}/kpi/uptime"             # retained {operational_time_s, downtime_s, state, ts}
+# --- Line level: how the line is planned and measured ---
+PLAN = f"{LINE}/production/plan"              # {plan_id, actions[], affected_orders[], ts}
+KPI_OEE = f"{LINE}/kpi/oee"                   # retained {availability, performance, quality, oee, ts}
+KPI_PRODUCTION = f"{LINE}/kpi/production"     # retained {rate_units_min, units_total, target_rate, ts}
+KPI_UPTIME = f"{LINE}/kpi/uptime"             # retained {operational_time_s, downtime_s, state, ts}
 
-# --- Optional vision ---
-VISION = f"{BASE}/vision/inspection"          # {ts, defect, confidence, bbox[]}
+# --- Site level: business functions above a single machine ---
+WORKORDER = f"{SITE}/maintenance/workorder"   # {id, cause_hypothesis, severity, decision, rationale, ts}
+WINDOW = f"{SITE}/maintenance/window"         # retained {id, start, end, status}
+KPI_COST = f"{SITE}/kpi/cost"                 # retained {running_cost, downtime_cost, maintenance_cost, currency, ts}
 
-# --- Agent reasoning traces (dashboard telemetry, not UNS) ---
+# --- Agent reasoning traces (inside the UNS, at each agent's level) ---
+_AGENT_LEVEL = {
+    "maintenance": CELL,   # edge maintenance triage sits on the asset
+    "planning": LINE,      # production planning sits on the line
+    "corporate": SITE,     # corporate/CMMS sits at the site
+}
+
+
 def agent_trace(name: str) -> str:
-    return f"agents/{name}/trace"
+    level = _AGENT_LEVEL.get(name, CELL)
+    return f"{level}/agents/{name}/trace"
 
-AGENTS_WILDCARD = "agents/#"
-UNS_WILDCARD = f"{BASE}/#"
+
+# Dashboard subscribes to the whole enterprise so it sees every level.
+ENTERPRISE_WILDCARD = f"{ENTERPRISE}/#"
+UNS_WILDCARD = ENTERPRISE_WILDCARD  # back-compat alias
 
 # States used on STATE topic
 STATE_HEALTHY = "healthy"

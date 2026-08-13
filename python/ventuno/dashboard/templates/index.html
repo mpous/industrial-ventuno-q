@@ -24,9 +24,16 @@
   .logo img { height:20px; display:block; }
   #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:var(--btn); }
   .spacer { flex:1; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
+  /* Layout: big UNS (B), tall agent history (C), small KPI (D) */
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px;
+          grid-template-areas: "a b" "c b" "c d"; }
+  .pa{ grid-area:a; } .pb{ grid-area:b; } .pc{ grid-area:c; } .pd{ grid-area:d; }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
-           min-height:260px; overflow:auto; max-height:46vh; }
+           overflow:auto; }
+  .pa { min-height:300px; max-height:46vh; }
+  .pb { max-height:94vh; }         /* larger UNS box */
+  .pc { max-height:94vh; }         /* tall, scrollable agent history */
+  .pd { max-height:30vh; }         /* smaller KPI box */
   .panel h2 { font-size:13px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
   .muted { color:var(--muted); }
   canvas { width:100%; height:140px; background:var(--wave); border:1px solid var(--border); border-radius:4px; }
@@ -44,6 +51,11 @@
   .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
   .model-info { margin-top:6px; font-size:11px; }
   .model-info .badge { padding:1px 6px; border-radius:8px; font-weight:bold; }
+  /* "?" help markers — native tooltip on hover */
+  .tip { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+         margin-left:4px; border-radius:50%; border:1px solid var(--border); color:var(--muted);
+         font-size:10px; line-height:1; cursor:help; vertical-align:middle; user-select:none; }
+  .tip:hover { border-color:var(--accent); color:var(--accent); }
   /* UNS topic tree */
   #tree { font-size:12px; }
   .node { margin-left:14px; border-left:1px dotted var(--border); padding-left:8px; }
@@ -54,10 +66,15 @@
   .leaf { padding:2px 0; }
   .leaf .seg { color:var(--ok); }
   .leaf pre { margin:2px 0 6px 14px; font-size:11px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
-  .evt { border-left:3px solid var(--accent); padding:6px 10px; margin-bottom:8px; background:var(--inset); border-radius:4px; }
+  .llm-bar { font-size:11px; margin-bottom:8px; padding:6px 8px; background:var(--inset);
+             border:1px solid var(--border); border-radius:6px; }
+  .llm-bar .badge { padding:1px 6px; border-radius:8px; font-weight:bold; background:var(--accent); color:#0d1117; }
+  #agents { display:flex; flex-direction:column; gap:8px; }
+  .evt { border-left:3px solid var(--accent); padding:6px 10px; background:var(--inset); border-radius:4px; }
   .evt .h { font-size:12px; }
   .evt .r { font-size:12px; color:var(--fg); margin-top:4px; }
   .evt .d { font-size:11px; color:var(--warn); margin-top:4px; white-space:pre-wrap; }
+  .evt .t { font-size:10px; color:var(--muted); float:right; }
   .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--btn); color:var(--muted); }
   .oee-big { font-size:34px; font-weight:bold; }
 </style>
@@ -75,15 +92,19 @@
 
 <div class="grid">
   <!-- Panel A -->
-  <div class="panel">
-    <h2>A · Vibration & Real-time Inference</h2>
+  <div class="panel pa">
+    <h2>A · Vibration &amp; Real-time Inference</h2>
     <canvas id="wave" width="600" height="140"></canvas>
     <div class="row">
-      <div class="metric"><div class="v" id="m-score">–</div><div class="l">anomaly score</div>
+      <div class="metric"><div class="v" id="m-score">–</div>
+        <div class="l">anomaly score<span class="tip" title="How far the current vibration is from the healthy baseline. If it stays above the threshold for several consecutive windows, it is flagged as a real fault.">?</span></div>
         <div class="bar"><div id="score-bar" style="width:0%"></div></div></div>
-      <div class="metric"><div class="v" id="m-rms">–</div><div class="l">RMS</div></div>
-      <div class="metric"><div class="v" id="m-kurt">–</div><div class="l">kurtosis</div></div>
-      <div class="metric"><div class="v" id="m-crest">–</div><div class="l">crest</div></div>
+      <div class="metric"><div class="v" id="m-rms">–</div>
+        <div class="l">RMS<span class="tip" title="Root Mean Square — the overall energy/amplitude of the vibration signal. Rises as the machine vibrates harder.">?</span></div></div>
+      <div class="metric"><div class="v" id="m-kurt">–</div>
+        <div class="l">kurtosis<span class="tip" title="Peakedness of the signal. High kurtosis means sharp, spiky impacts — often an early sign of bearing damage.">?</span></div></div>
+      <div class="metric"><div class="v" id="m-crest">–</div>
+        <div class="l">crest<span class="tip" title="Crest factor = peak ÷ RMS. High values indicate short, impulsive shocks rather than smooth vibration.">?</span></div></div>
     </div>
     <div class="muted" style="margin-top:6px" id="verdict">verdict: – · model: –</div>
     <div class="model-info muted" id="model-info">model: –</div>
@@ -109,46 +130,56 @@
   </div>
 
   <!-- Panel B -->
-  <div class="panel">
-    <h2>B · Unified Namespace (ISA-95 topic tree)</h2>
+  <div class="panel pb">
+    <h2>B · Unified Namespace<span class="tip" title="Unified Namespace (UNS): a single MQTT hierarchy that is the real-time single source of truth for the whole enterprise. Topics follow ISA-95: enterprise / site / area / line / cell.">?</span> · ISA-95 topic tree</h2>
+    <div class="muted" style="font-size:11px;margin-bottom:6px">Live view of the whole enterprise (<span id="ent">{{ enterprise }}</span>/#). Each datum sits at the level that owns it.</div>
     <div id="tree"></div>
   </div>
 
   <!-- Panel C -->
-  <div class="panel">
-    <h2>C · Agents Thinking (context · reasoning · memory)</h2>
+  <div class="panel pc">
+    <h2>C · Agents Thinking<span class="tip" title="Autonomous agents subscribe to the UNS, reason with an LLM, and coordinate over Google's Agent-to-Agent (A2A) protocol. This shows their context, reasoning and decisions over time.">?</span></h2>
+    <div class="llm-bar" id="llm-bar">LLM in use: <span class="badge" id="llm-badge">–</span> <span id="llm-model" class="muted"></span></div>
     <div id="agents"></div>
   </div>
 
   <!-- Panel D -->
-  <div class="panel">
-    <h2>D · Manufacturing KPIs</h2>
+  <div class="panel pd">
+    <h2>D · Manufacturing KPIs<span class="tip" title="Key Performance Indicators: quantified measures of how well the line is producing — effectiveness, output rate and cost.">?</span></h2>
     <div class="row">
-      <div class="metric"><div class="oee-big" id="k-oee">–</div><div class="l">OEE</div></div>
+      <div class="metric"><div class="oee-big" id="k-oee">–</div>
+        <div class="l">OEE<span class="tip" title="Overall Equipment Effectiveness = Availability × Performance × Quality. The single headline number for how productive the equipment is.">?</span></div></div>
       <div class="metric">
-        <div class="l">Availability</div><div class="v" id="k-avail">–</div>
-        <div class="l">Performance</div><div class="v" id="k-perf">–</div>
-        <div class="l">Quality</div><div class="v" id="k-qual">–</div>
+        <div class="l">Availability<span class="tip" title="Share of planned time the machine was actually running (not stopped by anomaly or maintenance).">?</span></div><div class="v" id="k-avail">–</div>
+        <div class="l">Performance<span class="tip" title="Actual production speed compared with the ideal/target rate.">?</span></div><div class="v" id="k-perf">–</div>
+        <div class="l">Quality<span class="tip" title="Share of good units out of the total produced.">?</span></div><div class="v" id="k-qual">–</div>
       </div>
     </div>
     <div class="row">
-      <div class="metric"><div class="v" id="k-rate">–</div><div class="l">units/min (rate)</div></div>
-      <div class="metric"><div class="v" id="k-units">–</div><div class="l">units total</div></div>
+      <div class="metric"><div class="v" id="k-rate">–</div>
+        <div class="l">units/min (rate)<span class="tip" title="Current production rate in units produced per minute.">?</span></div></div>
+      <div class="metric"><div class="v" id="k-units">–</div>
+        <div class="l">units total<span class="tip" title="Cumulative units produced since start.">?</span></div></div>
     </div>
     <div class="row">
-      <div class="metric"><div class="v" id="k-up">–</div><div class="l">operational time (s)</div></div>
-      <div class="metric"><div class="v" id="k-down">–</div><div class="l">downtime (s)</div></div>
+      <div class="metric"><div class="v" id="k-up">–</div>
+        <div class="l">operational time (s)<span class="tip" title="Seconds the machine has spent running and producing.">?</span></div></div>
+      <div class="metric"><div class="v" id="k-down">–</div>
+        <div class="l">downtime (s)<span class="tip" title="Seconds the machine has been stopped due to an anomaly or maintenance.">?</span></div></div>
     </div>
     <div class="row">
-      <div class="metric"><div class="v" id="k-cost">–</div><div class="l">total cost</div></div>
+      <div class="metric"><div class="v" id="k-cost">–</div>
+        <div class="l">total cost<span class="tip" title="Running cost + downtime cost + maintenance cost accumulated so far.">?</span></div></div>
     </div>
   </div>
 </div>
 
 <script>
 const BASE = "{{ base }}";
-const store = {};       // topic -> payload
-const agentLatest = {}; // agent -> latest event
+const T = {{ topics|tojson }};       // named UNS topic paths (levels vary)
+const LLM = {{ llm|tojson }};        // which LLM backend/model the agents use
+const store = {};                    // topic -> payload
+const agentEvents = [];              // chronological agent trace history
 
 // --- theme ---
 function applyTheme(t){
@@ -160,6 +191,10 @@ function toggleTheme(){
   localStorage.setItem('theme', next); applyTheme(next);
 }
 applyTheme(localStorage.getItem('theme') || 'dark');
+
+// --- LLM in use ---
+document.getElementById('llm-badge').textContent = LLM.label || LLM.backend;
+document.getElementById('llm-model').textContent = LLM.model ? `· model: ${LLM.model}` : '';
 
 // --- Edge Impulse key (browser-held) ---
 const keyEl = document.getElementById('ei-key');
@@ -264,21 +299,27 @@ function renderTree(){
   });
 }
 
+// --- Panel C: chronological, scrollable agent history (newest first) ---
+function addAgentEvent(e){
+  agentEvents.push(e);
+  if(agentEvents.length > 200) agentEvents.shift();
+}
 function renderAgents(){
   const el=document.getElementById('agents'); el.innerHTML='';
-  Object.keys(agentLatest).forEach(name=>{
-    const e=agentLatest[name];
+  for(let i=agentEvents.length-1; i>=0; i--){
+    const e=agentEvents[i];
+    const when = e.ts ? new Date(e.ts*1000).toLocaleTimeString() : '';
     const d=document.createElement('div'); d.className='evt';
-    d.innerHTML=`<div class="h"><b>${e.agent}</b> <span class="tag">${e.event}</span>
+    d.innerHTML=`<div class="h"><span class="t">${when}</span><b>${e.agent}</b> <span class="tag">${e.event}</span>
         <span class="tag">memory: ${(e.memory||[]).length}</span></div>
       <div class="r">${e.reasoning||''}</div>
-      <div class="d">${e.decision?JSON.stringify(e.decision):''}</div>`;
+      <div class="d">${e.decision&&Object.keys(e.decision).length?JSON.stringify(e.decision):''}</div>`;
     el.appendChild(d);
-  });
+  }
 }
 
 function updateModelInfo(){
-  const m = store[BASE+'/health/model']; const el=document.getElementById('model-info');
+  const m = store[T.model]; const el=document.getElementById('model-info');
   if(!m){ el.textContent='model: –'; return; }
   const live = m.backend==='brick' || m.backend==='eim';
   const badge = `<span class="badge" style="background:${live?'var(--ok)':'var(--warn)'};color:#0d1117">`
@@ -294,8 +335,8 @@ function updateModelInfo(){
 }
 
 function updatePanelA(){
-  const feat = store[BASE+'/vibration/features'];
-  const anom = store[BASE+'/health/anomaly'];
+  const feat = store[T.features];
+  const anom = store[T.anomaly];
   if(feat){ document.getElementById('m-rms').textContent=fmt(feat.rms);
     document.getElementById('m-kurt').textContent=fmt(feat.kurtosis);
     document.getElementById('m-crest').textContent=fmt(feat.crest); }
@@ -307,8 +348,8 @@ function updatePanelA(){
 }
 
 function updatePanelD(){
-  const oee=store[BASE+'/kpi/oee'], prod=store[BASE+'/kpi/production'],
-        up=store[BASE+'/kpi/uptime'], cost=store[BASE+'/kpi/cost'];
+  const oee=store[T.kpi_oee], prod=store[T.kpi_production],
+        up=store[T.kpi_uptime], cost=store[T.kpi_cost];
   if(oee){ document.getElementById('k-oee').textContent=(oee.oee*100).toFixed(0)+'%';
     document.getElementById('k-avail').textContent=(oee.availability*100).toFixed(0)+'%';
     document.getElementById('k-perf').textContent=(oee.performance*100).toFixed(0)+'%';
@@ -322,12 +363,21 @@ function updatePanelD(){
 }
 
 function updateStatePill(){
-  const s=store[BASE+'/health/state'];
+  const s=store[T.state];
   const pill=document.getElementById('state-pill'); if(!s) return;
   pill.textContent=s.state;
   pill.style.background = s.state==='healthy'?'var(--ok)':(s.state==='anomaly'?'var(--bad)':'var(--warn)');
   pill.style.color='#0d1117';
 }
+
+function refreshPanels(){
+  renderTree(); updatePanelA(); updatePanelD(); updateStatePill(); updateModelInfo();
+}
+
+// Seed agent history from the server (SSE prime only carries UNS state).
+fetch('/api/state').then(r=>r.json()).then(d=>{
+  (d.agents||[]).forEach(addAgentEvent); renderAgents();
+}).catch(()=>{});
 
 const es = new EventSource('/events');
 es.onopen = ()=>document.getElementById('conn').textContent='● live';
@@ -335,10 +385,10 @@ es.onerror = ()=>document.getElementById('conn').textContent='○ reconnecting�
 es.onmessage = (ev)=>{
   const m = JSON.parse(ev.data);
   if(m.kind==='raw'){ drawWave(m.payload.axis||{}); return; }
-  if(m.kind==='agent'){ agentLatest[m.payload.agent]=m.payload; renderAgents(); return; }
+  if(m.kind==='agent'){ addAgentEvent(m.payload); renderAgents(); return; }
   // uns
   store[m.topic]=m.payload;
-  renderTree(); updatePanelA(); updatePanelD(); updateStatePill(); updateModelInfo();
+  refreshPanels();
 };
 </script>
 </body>

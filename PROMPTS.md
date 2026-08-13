@@ -243,3 +243,54 @@ hardware.
 **Result:** config, simulator, edge_inference, models, uns, dashboard
 (server + template), README, `.env.example` updated; logo bundled. Pending
 commit/push to `dev`.
+
+---
+
+## 2026-08-13 — UNS ISA-95 by level, dashboard layout, agent history + LLM badge, tooltips
+
+**Prompt (paraphrased):** Agents and factory KPIs shouldn't all sit under the
+conveyor/vibration topic — find a better place in the UNS hierarchy. Also: make
+the UNS box larger and the KPI box smaller; show historical LLM agent messages
+(scrollable); show which LLM agent is used; add a "?" next to each concept
+(kurtosis, RMS, KPI, …) with a plain-language explainer.
+
+**Design answers (from the user):** UNS layout = **ISA-95 by level**; viewer
+scope = **whole enterprise `acme/#`**; agent traces = **inside the UNS at each
+level**.
+
+**Reasoning / decisions:**
+- **`uns.py` now derives ISA-95 levels** by splitting the base path
+  (`enterprise/site/area/line/cell`) and publishes each datum where it belongs:
+  - **Cell** (conveyor01): `vibration/raw`, `vibration/features`,
+    `health/anomaly`, `health/model`, `health/state`, `edge/status`.
+  - **Line** (line1): `production/plan`, `kpi/oee`, `kpi/production`,
+    `kpi/uptime` — a line is planned and measured as a unit.
+  - **Site** (barcelona): `maintenance/workorder`, `maintenance/window`,
+    `kpi/cost` — maintenance and cost are business functions above one machine.
+  Because every service references `uns.*` constants, relocating the topics
+  propagates with no changes to the simulator/inference/KPI/agent code.
+- **Agent traces moved inside the UNS** at each agent's level
+  (`{level}/agents/<name>/trace`): maintenance→cell, planning→line,
+  corporate→site. `agent_trace()` maps the level; `ENTERPRISE_WILDCARD` (`acme/#`)
+  now covers everything, so the dashboard uses a single subscription.
+- **Dashboard server:** subscribes to `acme/#` only; `_on_uns` detects
+  `…/trace` topics — routes the full event to Panel C and stores a *compact*
+  marker (agent/event/decision/ts) in the tree so it isn't buried under the
+  memory blob. The index route now passes a **named topic map** (`topics|tojson`)
+  plus **LLM-in-use** info so the browser looks up topics by name instead of
+  reconstructing `BASE + '/…'` (which would break now that topics live at
+  different levels).
+- **Layout:** CSS grid areas `"a b"/"c b"/"c d"` — UNS (B) and agent history (C)
+  are tall, KPI (D) is a small box.
+- **Panel C:** keeps a rolling 200-event history rendered newest-first with a
+  timestamp; seeds from `/api/state` on load (SSE prime only carries UNS state).
+  A badge shows the active LLM backend/model (mock / Ollama / App Lab brick).
+- **Tooltips:** a `.tip` "?" marker (native `title`) next to anomaly score, RMS,
+  kurtosis, crest, UNS, OEE, availability, performance, quality, rate, units,
+  operational time, downtime, cost.
+
+**Caveat (unverified):** written on the Windows dev box (no Python); not
+executed. Grid proportions and the trace-in-tree rendering are best-effort.
+
+**Result:** `uns.py`, `dashboard/server.py`, `dashboard/templates/index.html`,
+README updated. Pending commit/push to `dev`.
