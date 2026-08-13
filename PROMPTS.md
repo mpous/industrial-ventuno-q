@@ -294,3 +294,105 @@ executed. Grid proportions and the trace-in-tree rendering are best-effort.
 
 **Result:** `uns.py`, `dashboard/server.py`, `dashboard/templates/index.html`,
 README updated. Pending commit/push to `dev`.
+
+---
+
+## 2026-08-13 — Package the UNS broker as a Mosquitto Custom Brick
+
+**Prompt:** Instead of starting Mosquitto over SSH, create a **Custom Brick**
+that runs the MQTT broker (Mosquitto). Learn the App Lab custom-brick model
+(https://docs.arduino.cc/software/app-lab/bricks/custom-bricks/) and suggest how.
+
+**Findings (from the docs + the `arduino:dbstorage_tsstore` brick as a template):**
+- Custom Bricks live in **`bricks/<id>/`** at the app root (sibling of `app.yaml`
+  and `python/`), referenced in `app.yaml` **without** the `arduino:` prefix.
+  Files: `brick_config.yaml` (required id/name/variables), `brick_compose.yaml`
+  (optional standard Docker Compose), `__init__.py` (optional Python API),
+  `requirements.txt` (optional).
+- **Networking (the key insight):** the brick's Python runs **inside the main
+  app container**, not the brick's container. The app talks to a brick's
+  container over the virtual Compose network **by the compose service name as
+  hostname** (docs show `requests.get("http://hello_server:5000")`). So a broker
+  service named `mqtt_broker` is reachable from the app at `mqtt_broker:1883` —
+  this cleanly replaces the earlier `localhost`/gateway-IP problem: no
+  `apt install`, no `systemctl`, no `/etc/mosquitto` edits.
+
+**Decisions (confirmed with the user):**
+- Image `eclipse-mosquitto:latest`; publish `0.0.0.0:1883:1883` to the board host
+  too (so `mosquitto_sub` on the board/LAN can watch the UNS); **keep** the
+  gateway-discovery fallback in `mqtt_client.py` (service name is primary, gateway
+  is the safety net for the non-App-Lab direct path).
+
+**Implementation:** created `bricks/mqtt_broker/` with `brick_config.yaml`
+(id `mqtt_broker`, hidden `BIND_ADDRESS` var), `brick_compose.yaml` (mosquitto
+container, conf mounted from `${APP_HOME}/bricks/mqtt_broker/mosquitto.conf`,
+port published, `$SYS` healthcheck), `mosquitto.conf` (`listener 1883 0.0.0.0` +
+`allow_anonymous true` + persistence), and `__init__.py` (exposes
+`BROKER_HOST`/`BROKER_PORT` + a socket-based `wait_until_ready()`). `app.yaml`
+now lists `- mqtt_broker: {}` first. `.env.example` documents
+`MQTT_HOST=mqtt_broker` for the board. README's board section rewritten: the
+broker ships as a brick (App Lab path), with a `docker run eclipse-mosquitto`
+fallback for the direct path, and a note to disable any system Mosquitto to avoid
+a 1883 clash.
+
+**Caveat (unverified):** written on the Windows dev box (no Python/Docker/App
+Lab); not executed. Assumes App Lab mounts host-relative volumes via `APP_HOME`
+(as the `dbstorage_tsstore` brick does) and puts app + brick containers on one
+Compose network (as the docs state). Pending commit/push to `dev`.
+
+---
+
+## 2026-08-13 — Board-first defaults + dashboard polish (10-item feedback)
+
+**Prompt (paraphrased, 10 items):** (1) the app used MockLLM instead of the
+BrickLLM though Qwen3 is downloaded — remove MockLLM, only use BrickLLM; (2) UNS
+topics re-open on new data — keep them collapsible and just mark new data; (3)
+the vibration anomaly must use the deployed Edge Impulse model via the brick, not
+a mock/statistical baseline; (4) rename the app to "Industrial Automation with
+UNS and Agents"; (5) what does the top-right "live" mean?; (6) the light-mode sun
+emoji isn't visible; (7) the "?" markers show only "?" with no tooltip; (8) move
+Manufacturing KPIs above the UNS; (9) drop the A/B/C/D prefixes from panel titles;
+(10) add a "repairing" state for 3 seconds.
+
+**Answer to (5):** the top-right indicator is the **Server-Sent Events stream
+status** — "● live stream" means the browser is receiving UNS updates in real
+time; "○ reconnecting" means the stream dropped. Relabeled and given a tooltip.
+
+**Reasoning / decisions:**
+- **(1) LLM:** deleted `MockLLM` from `agents/llm.py`; `build_llm()` now returns
+  `BrickLLM` by default (Ollama remains the only non-brick option for the direct
+  path). `config.llm_backend` default `mock`→`brick`; `.env.example` updated;
+  dashboard `_llm_info()` mock branch removed.
+- **(3) Model:** `config.model_backend` default `statistical`→`brick` so the
+  `vibration_anomaly_detection` brick serves the deployed EI model. Statistical/
+  eim stay as explicit laptop/direct overrides but are no longer the default.
+- **(10) Repairing state:** new `uns.STATE_REPAIRING="repairing"`. Corporate
+  agent's `_close_later` now: wait `maint_duration_s` → publish `repairing` +
+  trace → sleep 3s → publish `healthy` + close window. Simulator treats
+  repairing as stopped (flat/zero, rpm 0); `edge_inference` short-circuits score
+  0 during repairing (same as maintenance); KPI `FACTORS`/`DOWN_STATES` count
+  repairing as downtime; dashboard state pill shows a distinct accent color.
+- **(2) Collapsible UNS tree:** tree no longer force-opens every node. A
+  `collapsed` Set remembers the user's collapse choices across rebuilds; a
+  `unseen` Set puts a "●" marker on a collapsed branch when new data arrives
+  there (cleared when the user expands it); changed leaves get a momentary
+  `flashbg` highlight. Uses a per-topic payload-diff to detect real changes.
+- **(6) Sun emoji:** `☀`→`☀️` (emoji variation selector) so it renders.
+- **(7) Tooltips:** replaced unreliable native `title` on `.tip` markers with a
+  JS floating `#tooltip` div positioned at the cursor; on load, titles are moved
+  to `data-tip` so the native tooltip doesn't double-fire.
+- **(8)/(9)/(4) Layout & naming:** grid areas `"a d"/"c b"/"c b"` — KPI (D) now
+  sits above the larger UNS (B). Panel `<h2>`s lost their A/B/C/D prefixes. App
+  renamed in `<title>`, `<h1>`, and `app.yaml` to "Industrial Automation with
+  UNS and Agents".
+- **Docs:** README laptop-defaults note rewritten (defaults now target the board
+  brick+brick; laptop overrides to statistical+ollama or eim).
+
+**Caveat (unverified):** written on the Windows dev box (no Python); not
+executed. Brick backends only exercise real inference on hardware under App Lab.
+
+**Result:** `agents/llm.py`, `config.py`, `.env.example`, `uns.py`,
+`agents/corporate_agent.py`, `simulator/vibration_simulator.py`,
+`inference/edge_inference.py`, `kpi/kpi_service.py`, `dashboard/server.py`,
+`dashboard/templates/index.html`, `app.yaml`, `README.md` updated. Pending
+commit/push to `dev` together with the mqtt_broker brick work.

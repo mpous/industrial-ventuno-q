@@ -43,10 +43,10 @@ class VibrationSimulator:
 
     def _on_state(self, topic: str, payload: dict) -> None:
         state = payload.get("state")
-        if state == uns.STATE_MAINTENANCE:
+        if state in (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING):
             self._under_maintenance = True
             if self._active_fault:
-                print(f"[sim] maintenance -> clearing fault '{self._active_fault}' (repaired)")
+                print(f"[sim] {state} -> clearing fault '{self._active_fault}' (repaired)")
                 self._active_fault = None
                 self._next_anomaly_at = time.monotonic() + self._sample_interval()
         else:

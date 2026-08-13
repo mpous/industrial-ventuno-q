@@ -3,8 +3,8 @@
 Edge **vibration anomaly detection** → **Unified Namespace (MQTT)** → **A2A agents**
 (maintenance, planning, corporate) reasoning with a **local LLM** → a **4-panel
 operations dashboard**. Everything runs on **one Arduino VENTUNO Q** simulating a
-multi-layer enterprise stack — and also runs on a laptop for development (mock LLM
-+ statistical anomaly model).
+multi-layer enterprise stack — with laptop-development overrides (statistical
+model + Ollama) for working without App Lab.
 
 > Target board: **Arduino VENTUNO Q** (Qualcomm Dragonwing IQ8, 16 GB, Hexagon NPU).
 > **Not** the Arduino UNO Q.
@@ -94,9 +94,12 @@ cd python && python main.py
 #   dashboard -> http://localhost:5001
 ```
 
-Defaults are laptop-safe: `MODEL_BACKEND=statistical`, `LLM_BACKEND=mock` — no
-Edge Impulse model or Ollama needed. Click **Trigger anomaly** on Panel A to
-force the loop immediately.
+Defaults now target the **VENTUNO Q under App Lab**: `MODEL_BACKEND=brick`
+(the `vibration_anomaly_detection` brick serving your deployed Edge Impulse
+model) and `LLM_BACKEND=brick` (the local `llm` brick — Gemma/Qwen/Qwen3). For
+laptop development without App Lab, override in `.env`: set `MODEL_BACKEND=statistical`
+and `LLM_BACKEND=ollama` (with a local Ollama server), or `eim` with a deployed
+`.eim`. Click **Trigger anomaly** on Panel A to force the loop immediately.
 
 ### Run components individually (per-phase verification)
 
@@ -138,63 +141,60 @@ re-deploy the `.eim` (or the vibration brick model).
 
 ## Run on the VENTUNO Q
 
-**Prerequisite (both paths): the UNS broker must be running _and reachable from
-the app_.** App Lab runs the app in a bridged container, so `localhost` inside
-the app is the container — not the board. Two things are needed: (1) Mosquitto
-running, and (2) Mosquitto listening beyond `127.0.0.1` so the container can
-reach it over the bridge. The app auto-discovers the board via the container's
-default gateway, so you don't need to hardcode an IP.
+**The UNS broker ships as a Custom Brick.** `bricks/mqtt_broker/` defines an
+Eclipse Mosquitto container; under App Lab the orchestrator starts it alongside
+the app on the same virtual Docker network. The app reaches it by the compose
+service name — so set `MQTT_HOST=mqtt_broker` in `.env`. No `apt install`, no
+`systemctl`, no `/etc/mosquitto` edits. The broker also publishes `1883` to the
+board host so `mosquitto_sub -h localhost -t 'acme/#' -v` works for debugging.
 
-```bash
-ssh arduino@<board-ip>
-sudo apt update && sudo apt install -y mosquitto mosquitto-clients
-
-# Open the broker to the bridge network (default config is localhost-only).
-sudo tee /etc/mosquitto/conf.d/uns.conf >/dev/null <<'EOF'
-listener 1883 0.0.0.0
-allow_anonymous true
-EOF
-
-sudo systemctl enable --now mosquitto        # starts now + on every boot
-sudo systemctl restart mosquitto             # pick up the new listener
-systemctl is-active mosquitto                # -> active
-mosquitto_sub -t 'acme/#' -v &               # optional: watch the UNS
-```
-
-> If Mosquitto stays on `localhost` only, the app fails all connect retries with
-> `ConnectionRefusedError: [Errno 111]` and exits — the `listener 0.0.0.0` line
-> is what fixes it. `allow_anonymous true` is fine for this on-board demo; add
-> auth if the board is on an untrusted network.
+> If a **system Mosquitto** is already enabled on the board it will hold port
+> 1883 and clash with the brick — disable it first:
+> `sudo systemctl disable --now mosquitto`.
 
 Then pick a backend combo.
 
 ### A) App Lab bricks (recommended)
 
-`app.yaml` declares two bricks that App Lab starts for you:
-`arduino:llm` (local Gemma/Qwen) and `arduino:vibration_anomaly_detection`
-(serves your deployed Edge Impulse model). Select/download the LLM model in App
-Lab, deploy the vibration model, then:
+`app.yaml` declares three bricks App Lab starts for you: the custom
+`mqtt_broker` (UNS), `arduino:llm` (local Gemma/Qwen) and
+`arduino:vibration_anomaly_detection` (serves your deployed Edge Impulse model).
+Select/download the LLM model in App Lab, deploy the vibration model, then:
 
 ```bash
 cp .env.example .env
-#   MODEL_BACKEND=brick   LLM_BACKEND=brick
+#   MQTT_HOST=mqtt_broker   MODEL_BACKEND=brick   LLM_BACKEND=brick
 arduino-app-cli app start .
 ```
 
 The `brick` backends ingest the same raw window we publish on `vibration/raw`
 and call the same agent interface — no other code changes.
 
-### B) Direct (.eim + Ollama)
+### B) Direct (.eim + Ollama, no App Lab)
+
+Running `python main.py` directly means the App Lab orchestrator isn't there to
+start the broker brick, so provide a broker yourself — either the same container
+or a system Mosquitto:
 
 ```bash
+# broker (pick one)
+docker run -d --name uns -p 1883:1883 \
+  -v "$PWD/bricks/mqtt_broker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
+  eclipse-mosquitto:latest
+#   or: sudo apt install -y mosquitto && sudo systemctl enable --now mosquitto
+
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull gemma3:4b                     # local LLM (Qwen is pre-bundled as a fallback)
 
 cp .env.example .env
-#   MODEL_BACKEND=eim   LLM_BACKEND=ollama   OLLAMA_MODEL=gemma3:4b
+#   MQTT_HOST=localhost   MODEL_BACKEND=eim   LLM_BACKEND=ollama   OLLAMA_MODEL=gemma3:4b
 cd python && python main.py
 ```
 Open `http://<board-ip>:5001`.
+
+> The app still auto-discovers the broker via the container's default gateway as
+> a fallback (kept from before), but with the `mqtt_broker` brick the service
+> name is the primary, reliable path.
 
 ## Configuration
 

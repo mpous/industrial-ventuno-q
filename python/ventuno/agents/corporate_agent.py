@@ -70,12 +70,20 @@ class CorporateAgent(AgentBase):
 
     def _close_later(self, window: dict) -> None:
         time.sleep(self.cfg.maint_duration_s)
+        # Brief "repairing" phase: the technician is finishing the fix before the
+        # machine is handed back to production.
+        self.mqtt.publish(uns.STATE, {"state": uns.STATE_REPAIRING, "ts": now_ts()}, retain=True)
+        self.remember({"event": "repairing", "window_id": window["id"]})
+        self.publish_trace("repairing", {"window_id": window["id"]},
+                           "Maintenance window elapsed; technician finishing the repair before restart.",
+                           window)
+        time.sleep(3.0)
         window = {**window, "status": "closed", "end": now_ts()}
         self.mqtt.publish(uns.WINDOW, window, retain=True)
         self.mqtt.publish(uns.STATE, {"state": uns.STATE_HEALTHY, "ts": now_ts()}, retain=True)
         self.remember({"event": "closed", "window_id": window["id"]})
         self.publish_trace("close_window", {"window_id": window["id"]},
-                           "Maintenance window elapsed; inspection complete, returning machine to service.",
+                           "Repair complete; returning machine to service.",
                            window)
 
 

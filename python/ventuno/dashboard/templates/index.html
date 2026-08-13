@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Industrial Automation Project with UNS and Agents</title>
+<title>Industrial Automation with UNS and Agents</title>
 <style>
   /* Dark (night) theme — default */
   :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e;
@@ -24,16 +24,16 @@
   .logo img { height:20px; display:block; }
   #state-pill { padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; background:var(--btn); }
   .spacer { flex:1; }
-  /* Layout: big UNS (B), tall agent history (C), small KPI (D) */
+  /* Layout: KPI (D) sits above the big UNS (B); tall agent history (C) */
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px;
-          grid-template-areas: "a b" "c b" "c d"; }
+          grid-template-areas: "a d" "c b" "c b"; }
   .pa{ grid-area:a; } .pb{ grid-area:b; } .pc{ grid-area:c; } .pd{ grid-area:d; }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
            overflow:auto; }
   .pa { min-height:300px; max-height:46vh; }
-  .pb { max-height:94vh; }         /* larger UNS box */
+  .pb { max-height:80vh; }         /* larger UNS box */
   .pc { max-height:94vh; }         /* tall, scrollable agent history */
-  .pd { max-height:30vh; }         /* smaller KPI box */
+  .pd { max-height:34vh; }         /* smaller KPI box, above the UNS */
   .panel h2 { font-size:13px; margin:0 0 8px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
   .muted { color:var(--muted); }
   canvas { width:100%; height:140px; background:var(--wave); border:1px solid var(--border); border-radius:4px; }
@@ -51,11 +51,16 @@
   .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
   .model-info { margin-top:6px; font-size:11px; }
   .model-info .badge { padding:1px 6px; border-radius:8px; font-weight:bold; }
-  /* "?" help markers — native tooltip on hover */
+  /* "?" help markers — custom floating tooltip (native title is unreliable) */
   .tip { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
          margin-left:4px; border-radius:50%; border:1px solid var(--border); color:var(--muted);
          font-size:10px; line-height:1; cursor:help; vertical-align:middle; user-select:none; }
   .tip:hover { border-color:var(--accent); color:var(--accent); }
+  #tooltip { position:fixed; z-index:1000; max-width:300px; padding:8px 10px; font-size:11px;
+             line-height:1.4; background:var(--panel); color:var(--fg); border:1px solid var(--accent);
+             border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.4); pointer-events:none;
+             opacity:0; transition:opacity .1s; }
+  #tooltip.show { opacity:1; }
   /* UNS topic tree */
   #tree { font-size:12px; }
   .node { margin-left:14px; border-left:1px dotted var(--border); padding-left:8px; }
@@ -66,6 +71,9 @@
   .leaf { padding:2px 0; }
   .leaf .seg { color:var(--ok); }
   .leaf pre { margin:2px 0 6px 14px; font-size:11px; white-space:pre-wrap; word-break:break-word; color:var(--fg); }
+  .leaf.flash pre { animation:flashbg 1.4s ease-out; }
+  @keyframes flashbg { 0% { background:var(--accent); color:#0d1117; } 100% { background:transparent; } }
+  summary .dot { color:var(--warn); margin-left:6px; font-size:14px; line-height:1; vertical-align:middle; }
   .llm-bar { font-size:11px; margin-bottom:8px; padding:6px 8px; background:var(--inset);
              border:1px solid var(--border); border-radius:6px; }
   .llm-bar .badge { padding:1px 6px; border-radius:8px; font-weight:bold; background:var(--accent); color:#0d1117; }
@@ -80,20 +88,21 @@
 </style>
 </head>
 <body>
+<div id="tooltip"></div>
 <header>
   <span class="logo"><img src="/static/edge-impulse-logo.svg" alt="Edge Impulse"></span>
-  <h1>Industrial Automation Project with UNS and Agents</h1>
+  <h1>Industrial Automation with UNS and Agents</h1>
   <span class="muted" id="base">{{ base }}</span>
   <span id="state-pill">—</span>
   <span class="spacer"></span>
-  <span class="muted" id="conn">connecting…</span>
+  <span class="muted" id="conn" title="Live connection to the dashboard's real-time event stream (Server-Sent Events). '● live' means the browser is receiving UNS updates in real time; '○ reconnecting' means the stream dropped and is retrying.">connecting…</span>
   <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
 </header>
 
 <div class="grid">
   <!-- Panel A -->
   <div class="panel pa">
-    <h2>A · Vibration &amp; Real-time Inference</h2>
+    <h2>Vibration &amp; Real-time Inference</h2>
     <canvas id="wave" width="600" height="140"></canvas>
     <div class="row">
       <div class="metric"><div class="v" id="m-score">–</div>
@@ -131,21 +140,21 @@
 
   <!-- Panel B -->
   <div class="panel pb">
-    <h2>B · Unified Namespace<span class="tip" title="Unified Namespace (UNS): a single MQTT hierarchy that is the real-time single source of truth for the whole enterprise. Topics follow ISA-95: enterprise / site / area / line / cell.">?</span> · ISA-95 topic tree</h2>
+    <h2>Unified Namespace<span class="tip" title="Unified Namespace (UNS): a single MQTT hierarchy that is the real-time single source of truth for the whole enterprise. Topics follow ISA-95: enterprise / site / area / line / cell.">?</span> · ISA-95 topic tree</h2>
     <div class="muted" style="font-size:11px;margin-bottom:6px">Live view of the whole enterprise (<span id="ent">{{ enterprise }}</span>/#). Each datum sits at the level that owns it.</div>
     <div id="tree"></div>
   </div>
 
   <!-- Panel C -->
   <div class="panel pc">
-    <h2>C · Agents Thinking<span class="tip" title="Autonomous agents subscribe to the UNS, reason with an LLM, and coordinate over Google's Agent-to-Agent (A2A) protocol. This shows their context, reasoning and decisions over time.">?</span></h2>
+    <h2>Agents Thinking<span class="tip" title="Autonomous agents subscribe to the UNS, reason with an LLM, and coordinate over Google's Agent-to-Agent (A2A) protocol. This shows their context, reasoning and decisions over time.">?</span></h2>
     <div class="llm-bar" id="llm-bar">LLM in use: <span class="badge" id="llm-badge">–</span> <span id="llm-model" class="muted"></span></div>
     <div id="agents"></div>
   </div>
 
   <!-- Panel D -->
   <div class="panel pd">
-    <h2>D · Manufacturing KPIs<span class="tip" title="Key Performance Indicators: quantified measures of how well the line is producing — effectiveness, output rate and cost.">?</span></h2>
+    <h2>Manufacturing KPIs<span class="tip" title="Key Performance Indicators: quantified measures of how well the line is producing — effectiveness, output rate and cost.">?</span></h2>
     <div class="row">
       <div class="metric"><div class="oee-big" id="k-oee">–</div>
         <div class="l">OEE<span class="tip" title="Overall Equipment Effectiveness = Availability × Performance × Quality. The single headline number for how productive the equipment is.">?</span></div></div>
@@ -184,7 +193,7 @@ const agentEvents = [];              // chronological agent trace history
 // --- theme ---
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme', t);
-  document.getElementById('theme-toggle').textContent = t==='light' ? '☀' : '🌙';
+  document.getElementById('theme-toggle').textContent = t==='light' ? '☀️' : '🌙';
 }
 function toggleTheme(){
   const next = document.documentElement.getAttribute('data-theme')==='light' ? 'dark' : 'light';
@@ -255,6 +264,10 @@ function drawWave(axis){
 function shortTopic(t){ return t.startsWith(BASE) ? t.slice(BASE.length+1) : t; }
 
 // --- UNS topic tree (nested by '/') ---
+const collapsed = new Set();   // node paths the user has explicitly collapsed
+const unseen = new Set();      // collapsed branch paths with new, not-yet-viewed data
+const pendingFlash = new Set();// topics whose payload just changed (momentary flash)
+
 function buildTree(topics){
   const root = {children:{}};
   topics.forEach(t=>{
@@ -268,21 +281,33 @@ function buildTree(topics){
   });
   return root;
 }
-function renderNode(name, node){
+function renderNode(name, node, path){
   const keys = Object.keys(node.children).sort();
   if(node.topic && keys.length===0){
-    const d = document.createElement('div'); d.className='leaf';
+    const d = document.createElement('div');
+    d.className = pendingFlash.has(node.topic) ? 'leaf flash' : 'leaf';
     d.innerHTML = `<span class="seg">${name}</span>`;
     const pre = document.createElement('pre');
     pre.textContent = JSON.stringify(store[node.topic]);
     d.appendChild(pre);
     return d;
   }
-  const det = document.createElement('details'); det.open = true;
-  const sum = document.createElement('summary'); sum.textContent = name;
+  const det = document.createElement('details');
+  det.open = !collapsed.has(path);               // preserve the user's collapse choice
+  const sum = document.createElement('summary');
+  sum.textContent = name;
+  if(collapsed.has(path) && unseen.has(path)){    // new data arrived while collapsed
+    const dot = document.createElement('span'); dot.className='dot'; dot.textContent='●';
+    dot.title='new data published here'; sum.appendChild(dot);
+  }
   det.appendChild(sum);
+  det.addEventListener('toggle', ()=>{
+    if(det.open){ collapsed.delete(path); unseen.delete(path); }
+    else { collapsed.add(path); }
+  });
   keys.forEach(k=>{
-    const child = renderNode(k, node.children[k]);
+    const childPath = path ? path+'/'+k : k;
+    const child = renderNode(k, node.children[k], childPath);
     child.classList.add('node');
     det.appendChild(child);
   });
@@ -293,10 +318,20 @@ function renderTree(){
   const tree = buildTree(Object.keys(store));
   const topKeys = Object.keys(tree.children).sort();
   topKeys.forEach(k=>{
-    const node = renderNode(k, tree.children[k]);
+    const node = renderNode(k, tree.children[k], k);
     node.classList.add('node','root');
     el.appendChild(node);
   });
+  pendingFlash.clear();  // flash is momentary; consumed on this render
+}
+// Mark a changed topic: flash its leaf, and dot any collapsed ancestor branch.
+function markChanged(topic){
+  pendingFlash.add(topic);
+  const parts = topic.split('/');
+  for(let i=1; i<parts.length; i++){
+    const ancestor = parts.slice(0,i).join('/');
+    if(collapsed.has(ancestor)) unseen.add(ancestor);
+  }
 }
 
 // --- Panel C: chronological, scrollable agent history (newest first) ---
@@ -366,7 +401,8 @@ function updateStatePill(){
   const s=store[T.state];
   const pill=document.getElementById('state-pill'); if(!s) return;
   pill.textContent=s.state;
-  pill.style.background = s.state==='healthy'?'var(--ok)':(s.state==='anomaly'?'var(--bad)':'var(--warn)');
+  const colors={healthy:'var(--ok)', anomaly:'var(--bad)', maintenance:'var(--warn)', repairing:'var(--accent)'};
+  pill.style.background = colors[s.state] || 'var(--warn)';
   pill.style.color='#0d1117';
 }
 
@@ -380,16 +416,36 @@ fetch('/api/state').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 const es = new EventSource('/events');
-es.onopen = ()=>document.getElementById('conn').textContent='● live';
+es.onopen = ()=>document.getElementById('conn').textContent='● live stream';
 es.onerror = ()=>document.getElementById('conn').textContent='○ reconnecting…';
 es.onmessage = (ev)=>{
   const m = JSON.parse(ev.data);
   if(m.kind==='raw'){ drawWave(m.payload.axis||{}); return; }
   if(m.kind==='agent'){ addAgentEvent(m.payload); renderAgents(); return; }
   // uns
+  if(JSON.stringify(store[m.topic]) !== JSON.stringify(m.payload)) markChanged(m.topic);
   store[m.topic]=m.payload;
   refreshPanels();
 };
+
+// --- custom floating tooltip for ".tip" markers (native title is unreliable) ---
+(function initTooltips(){
+  const tip = document.getElementById('tooltip');
+  function text(el){ return el.getAttribute('data-tip') || el.getAttribute('title') || ''; }
+  document.querySelectorAll('.tip').forEach(el=>{
+    // Move title into data-tip so the native tooltip doesn't also fire.
+    if(el.hasAttribute('title')){ el.setAttribute('data-tip', el.getAttribute('title')); el.removeAttribute('title'); }
+    el.addEventListener('mouseenter', ()=>{ tip.textContent = text(el); tip.classList.add('show'); });
+    el.addEventListener('mousemove', (e)=>{
+      const pad=12; let x=e.clientX+pad, y=e.clientY+pad;
+      const r=tip.getBoundingClientRect();
+      if(x+r.width > innerWidth) x = e.clientX - r.width - pad;
+      if(y+r.height > innerHeight) y = e.clientY - r.height - pad;
+      tip.style.left = x+'px'; tip.style.top = y+'px';
+    });
+    el.addEventListener('mouseleave', ()=>tip.classList.remove('show'));
+  });
+})();
 </script>
 </body>
 </html>

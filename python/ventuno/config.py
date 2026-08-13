@@ -1,8 +1,8 @@
 """Central configuration, loaded from environment variables with sane defaults.
 
-Everything the demo needs to run on a laptop (mock LLM + statistical model +
-local Mosquitto) or on the VENTUNO Q (Ollama/Gemma + Edge Impulse .eim) is
-selected here.
+Defaults target the VENTUNO Q under App Lab: the ``llm`` brick (Gemma/Qwen/Qwen3)
+and the ``vibration_anomaly_detection`` brick serving the deployed Edge Impulse
+model. For the direct (non-App-Lab) path, override with Ollama and an ``.eim``.
 """
 from __future__ import annotations
 
@@ -72,13 +72,13 @@ class Config:
     anomaly_period_s: float = field(default_factory=lambda: _get_float("ANOMALY_PERIOD_S", 300.0))
 
     # --- Inference / anomaly model ---
-    model_backend: str = field(default_factory=lambda: _get("MODEL_BACKEND", "statistical"))  # statistical | eim | brick
+    model_backend: str = field(default_factory=lambda: _get("MODEL_BACKEND", "brick"))  # brick | eim | statistical
     eim_path: str = field(default_factory=lambda: _get("EIM_PATH", "models/conveyor-anomaly.eim"))
     anomaly_threshold: float = field(default_factory=lambda: _get_float("ANOMALY_THRESHOLD", 0.5))
     anomaly_persist: int = field(default_factory=lambda: _get_int("ANOMALY_PERSIST", 3))  # consecutive windows
 
     # --- LLM (agents) ---
-    llm_backend: str = field(default_factory=lambda: _get("LLM_BACKEND", "mock"))  # mock | ollama | brick
+    llm_backend: str = field(default_factory=lambda: _get("LLM_BACKEND", "brick"))  # brick | ollama
     ollama_host: str = field(default_factory=lambda: _get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _get("OLLAMA_MODEL", "gemma3:4b"))
 

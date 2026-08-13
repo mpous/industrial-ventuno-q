@@ -32,7 +32,11 @@ FACTORS = {
     uns.STATE_HEALTHY: {"rate": 1.0, "quality": 0.99},
     uns.STATE_ANOMALY: {"rate": 0.6, "quality": 0.90},
     uns.STATE_MAINTENANCE: {"rate": 0.0, "quality": 1.0},
+    uns.STATE_REPAIRING: {"rate": 0.0, "quality": 1.0},
 }
+
+# States where the machine is down (no production, incurs downtime + maint cost).
+DOWN_STATES = (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING)
 
 
 class KpiService:
@@ -65,7 +69,7 @@ class KpiService:
         dt_min = dt / 60.0
         f = FACTORS.get(self.state, FACTORS[uns.STATE_HEALTHY])
 
-        if self.state == uns.STATE_MAINTENANCE:
+        if self.state in DOWN_STATES:
             self.down_time += dt
             self.maint_cost += MAINT_COST_PER_MIN * dt_min
             self.downtime_cost += DOWNTIME_COST_PER_MIN * dt_min
@@ -80,7 +84,7 @@ class KpiService:
         total = self.op_time + self.down_time
         availability = (self.op_time / total) if total > 0 else 1.0
         f = FACTORS.get(self.state, FACTORS[uns.STATE_HEALTHY])
-        performance = f["rate"] if self.state != uns.STATE_MAINTENANCE else 0.0
+        performance = f["rate"] if self.state not in DOWN_STATES else 0.0
         quality = (self.good_units / self.units) if self.units > 0 else 1.0
         return {
             "availability": round(availability, 4),

@@ -57,7 +57,7 @@ class EdgeInference:
 
         # While the machine is stopped for repair it emits no vibration; don't
         # let the model read the flat window as an anomaly. Report a clean score.
-        if self._current_state == uns.STATE_MAINTENANCE:
+        if self._current_state in (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING):
             self._consecutive = 0
             self.mqtt.publish(
                 uns.ANOMALY,
@@ -90,8 +90,8 @@ class EdgeInference:
             },
         )
 
-        # Do not stomp a maintenance window; the corporate agent owns that state.
-        if self._current_state != uns.STATE_MAINTENANCE:
+        # Do not stomp a maintenance/repair window; the corporate agent owns that state.
+        if self._current_state not in (uns.STATE_MAINTENANCE, uns.STATE_REPAIRING):
             new_state = uns.STATE_ANOMALY if verdict else uns.STATE_HEALTHY
             if new_state != self._current_state:
                 self._current_state = new_state

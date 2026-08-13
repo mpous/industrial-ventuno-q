@@ -73,3 +73,4 @@ UNS_WILDCARD = ENTERPRISE_WILDCARD  # back-compat alias
 STATE_HEALTHY = "healthy"
 STATE_ANOMALY = "anomaly"
 STATE_MAINTENANCE = "maintenance"
+STATE_REPAIRING = "repairing"

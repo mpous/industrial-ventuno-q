@@ -110,10 +110,8 @@ def _llm_info() -> dict:
     backend = CONFIG.llm_backend
     if backend == "ollama":
         label, model = "Ollama (local)", CONFIG.ollama_model
-    elif backend == "brick":
-        label, model = "App Lab LLM brick", CONFIG.ollama_model
     else:
-        label, model = "Mock (deterministic)", "rule-based"
+        label, model = "App Lab LLM brick", CONFIG.ollama_model
     return {"backend": backend, "label": label, "model": model}
 
 
