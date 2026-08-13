@@ -40,10 +40,20 @@ def _default_gateway_ip() -> str | None:
 
 
 def _candidate_hosts() -> list[str]:
-    """Broker hosts to try, in order: the configured host, then likely board
-    addresses when the app is containerized (default gateway, Docker bridge)."""
+    """Broker hosts to try, in order.
+
+    1. The configured host (``MQTT_HOST``) — wins immediately on a laptop where
+       it's ``localhost``.
+    2. ``mqtt_broker`` — the compose service name of the bundled Mosquitto custom
+       brick. Under App Lab the app runs on the same Docker network as the brick,
+       so this hostname resolves to the broker container. Tried automatically so
+       the demo works even if ``MQTT_HOST`` wasn't set to ``mqtt_broker`` in
+       ``.env`` (off-board this name simply fails to resolve and is skipped).
+    3. The container's default gateway and the Docker bridge (172.17.0.1) — the
+       fallback for a broker published on the board host (direct/no-App-Lab path).
+    """
     hosts = [CONFIG.mqtt_host]
-    for extra in (_default_gateway_ip(), "172.17.0.1"):
+    for extra in ("mqtt_broker", _default_gateway_ip(), "172.17.0.1"):
         if extra and extra not in hosts:
             hosts.append(extra)
     return hosts
@@ -89,9 +99,12 @@ class MqttClient:
             break
         else:
             raise ConnectionError(
-                f"MQTT broker never came up on any of {hosts}:{port}. Start it and "
-                f"ensure it listens beyond localhost, e.g. add a listener on 0.0.0.0 "
-                f"and `sudo systemctl restart mosquitto`."
+                f"MQTT broker never came up on any of {hosts}:{port}. Under App "
+                f"Lab the broker ships as the 'mqtt_broker' custom brick — make "
+                f"sure it's listed in app.yaml and started (arduino-app-cli app "
+                f"logs). For the direct path, run a broker on 0.0.0.0:1883 (e.g. "
+                f"the eclipse-mosquitto container) and disable any system "
+                f"mosquitto that might hold the port."
             ) from last_exc
         self._client.loop_start()
         if not self._connected.wait(timeout):
