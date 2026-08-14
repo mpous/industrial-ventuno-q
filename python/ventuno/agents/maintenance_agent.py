@@ -58,8 +58,20 @@ class MaintenanceAgent(AgentBase):
         self.mqtt.subscribe(uns.STATE, self._on_state)
         self.mqtt.subscribe(uns.RAW, self._on_raw)  # peek ground-truth label (stand-in for a fault classifier)
         self.server.start(self.cfg.a2a_host, self.cfg.maint_port)
+        self.start_heartbeat(self._heartbeat_status)
         print(f"[maintenance] A2A card at {self.cfg.maint_url}/.well-known/agent-card.json")
         log.info("A2A card at %s/.well-known/agent-card.json", self.cfg.maint_url)
+
+    def _heartbeat_status(self) -> tuple[str | None, dict | None]:
+        if self._open_workorder:
+            return None, None  # busy with an active work order
+        peak = max(self._recent_scores) if self._recent_scores else 0.0
+        return (
+            f"Conveyor nominal: peak anomaly score {peak:.3f} vs threshold "
+            f"{self.cfg.anomaly_threshold}. No maintenance required.",
+            {"peak_score": round(peak, 4), "threshold": self.cfg.anomaly_threshold,
+             "open_workorder": False},
+        )
 
     def _on_raw(self, topic: str, payload: dict) -> None:
         self._suspected_fault = payload.get("_label", self._suspected_fault)

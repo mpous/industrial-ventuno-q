@@ -81,6 +81,9 @@ class Config:
     llm_backend: str = field(default_factory=lambda: _get("LLM_BACKEND", "brick"))  # brick | ollama
     ollama_host: str = field(default_factory=lambda: _get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _get("OLLAMA_MODEL", "gemma3:4b"))
+    # Optional label override for the brick path. Empty = auto-detect the model
+    # the App Lab llm brick resolves at runtime (shown on the dashboard).
+    llm_model: str = field(default_factory=lambda: _get("LLM_MODEL", ""))
 
     # --- Agent A2A endpoints ---
     maint_port: int = field(default_factory=lambda: _get_int("MAINT_PORT", 8001))
@@ -88,6 +91,9 @@ class Config:
     corp_port: int = field(default_factory=lambda: _get_int("CORP_PORT", 8003))
     a2a_host: str = field(default_factory=lambda: _get("A2A_HOST", "localhost"))
     maint_duration_s: float = field(default_factory=lambda: _get_float("MAINT_DURATION_S", 60.0))
+    # How often each agent posts a "nominal / all clear" heartbeat trace when the
+    # line is healthy (0 disables). Keeps Panel C alive during quiet periods.
+    heartbeat_s: float = field(default_factory=lambda: _get_float("HEARTBEAT_S", 60.0))
 
     # --- Dashboard ---
     dashboard_port: int = field(default_factory=lambda: _get_int("DASHBOARD_PORT", 5001))

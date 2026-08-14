@@ -26,6 +26,7 @@ class CorporateAgent(AgentBase):
     def __init__(self, config=CONFIG):
         super().__init__("corporate")
         self.cfg = config
+        self._open_window = False
         self.server = A2AServer(
             name="Corporate Scheduling Agent",
             description="Mock CMMS/ERP that books maintenance inspections.",
@@ -42,8 +43,18 @@ class CorporateAgent(AgentBase):
     def start(self) -> None:
         self.connect()
         self.server.start(self.cfg.a2a_host, self.cfg.corp_port)
+        self.start_heartbeat(self._heartbeat_status)
         print(f"[corporate] A2A card at {self.cfg.corp_url}/.well-known/agent-card.json")
         log.info("A2A card at %s/.well-known/agent-card.json", self.cfg.corp_url)
+
+    def _heartbeat_status(self) -> tuple[str | None, dict | None]:
+        if self._open_window:
+            return None, None  # busy managing a maintenance window
+        return (
+            "Schedule clear: no maintenance windows open and no work orders pending. "
+            "Conveyor running normally.",
+            {"windows_open": 0, "status": "nominal"},
+        )
 
     def _handle(self, text: str) -> str:
         log.info("A2A request recv (%d chars)", len(text or ""))
@@ -53,6 +64,7 @@ class CorporateAgent(AgentBase):
             wo = {"raw": text}
 
         window_id = f"MW-{uuid.uuid4().hex[:6]}"
+        self._open_window = True
         start = now_ts()
         end = start + self.cfg.maint_duration_s
         window = {"id": window_id, "start": start, "end": end, "status": "scheduled",
@@ -94,6 +106,7 @@ class CorporateAgent(AgentBase):
                            "Repair complete; returning machine to service.",
                            window)
         log.info("window %s closed -> state=healthy", window["id"])
+        self._open_window = False
 
 
 def main() -> None:

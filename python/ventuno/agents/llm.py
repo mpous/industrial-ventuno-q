@@ -18,6 +18,11 @@ import requests
 
 from ..config import CONFIG
 
+# Set once the App Lab llm brick resolves its model (chosen in App Lab, not by
+# us), so the dashboard can label Panel C with the real model instead of the
+# Ollama default. None until a BrickLLM is built.
+RESOLVED_BRICK_MODEL: str | None = None
+
 
 def _extract_json(text: str) -> str:
     """Best-effort: pull the first {...} object out of a chatty LLM reply.
@@ -80,7 +85,30 @@ class BrickLLM:
         from arduino.app_bricks.llm import LargeLanguageModel  # board-only import
 
         self._llm = LargeLanguageModel()
-        self.name = f"brick-llm:{model or 'default'}"
+        # The brick picks its model from App Lab config, ignoring anything we
+        # pass. Read the resolved name back so the dashboard shows the truth.
+        resolved = CONFIG.llm_model or self._resolve_model_name() or model or "default"
+        self.model = resolved
+        global RESOLVED_BRICK_MODEL
+        RESOLVED_BRICK_MODEL = resolved
+        self.name = f"brick-llm:{resolved}"
+
+    def _resolve_model_name(self) -> str | None:
+        for attr in ("model", "model_name", "_model", "_model_name"):
+            v = getattr(self._llm, attr, None)
+            if isinstance(v, str) and v:
+                return v
+        info = getattr(self._llm, "get_model_info", None)
+        if callable(info):
+            try:
+                data = info()
+            except Exception:
+                return None
+            for key in ("model", "name"):
+                v = getattr(data, key, None) or (data.get(key) if isinstance(data, dict) else None)
+                if isinstance(v, str) and v:
+                    return v
+        return None
 
     def complete(self, system: str, user: str, want_json: bool = True) -> tuple[str, str]:
         prompt = f"{system}\n\n{user}"

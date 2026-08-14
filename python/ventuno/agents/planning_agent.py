@@ -34,6 +34,7 @@ class PlanningAgent(AgentBase):
         self.llm = build_llm()
         self._latest_oee = 1.0
         self._handled: set[str] = set()
+        self._active_window = False
         self.server = A2AServer(
             name="Planning Agent",
             description="Re-plans production around maintenance windows.",
@@ -52,19 +53,33 @@ class PlanningAgent(AgentBase):
         self.mqtt.subscribe(uns.WINDOW, self._on_window)
         self.mqtt.subscribe(uns.KPI_OEE, self._on_oee)
         self.server.start(self.cfg.a2a_host, self.cfg.plan_port)
+        self.start_heartbeat(self._heartbeat_status)
         print(f"[planning] A2A card at {self.cfg.plan_url}/.well-known/agent-card.json")
         log.info("A2A card at %s/.well-known/agent-card.json", self.cfg.plan_url)
+
+    def _heartbeat_status(self) -> tuple[str | None, dict | None]:
+        if self._active_window:
+            return None, None  # busy re-planning around an open window
+        return (
+            f"Production plan steady: OEE {self._latest_oee:.0%}, no maintenance "
+            f"windows pending.",
+            {"oee": round(self._latest_oee, 4), "windows_pending": 0},
+        )
 
     def _on_oee(self, topic: str, payload: dict) -> None:
         self._latest_oee = float(payload.get("oee", self._latest_oee))
 
     def _on_window(self, topic: str, payload: dict) -> None:
+        if payload.get("status") == "closed":
+            self._active_window = False
+            return
         if payload.get("status") != "scheduled":
             return
         window_id = payload.get("id")
         if not window_id or window_id in self._handled:
             return
         self._handled.add(window_id)
+        self._active_window = True
         log.info("new window %s -> re-planning with LLM (oee=%.2f)", window_id, self._latest_oee)
 
         context = {

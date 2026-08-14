@@ -112,10 +112,12 @@ def _llm_info() -> dict:
     """Which LLM backend/model the agents use (surfaced in Panel C)."""
     backend = CONFIG.llm_backend
     if backend == "ollama":
-        label, model = "Ollama (local)", CONFIG.ollama_model
-    else:
-        label, model = "App Lab LLM brick", CONFIG.ollama_model
-    return {"backend": backend, "label": label, "model": model}
+        return {"backend": backend, "label": "Ollama (local)", "model": CONFIG.ollama_model}
+    # Brick path: App Lab picks the model, so use the name the brick resolved at
+    # runtime (falls back to an explicit LLM_MODEL override, else "default").
+    from ..agents.llm import RESOLVED_BRICK_MODEL
+    model = CONFIG.llm_model or RESOLVED_BRICK_MODEL or "default"
+    return {"backend": backend, "label": "App Lab LLM brick", "model": model}
 
 
 @app.route("/")

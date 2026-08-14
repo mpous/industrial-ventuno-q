@@ -5,10 +5,20 @@ Memory is intentionally in-RAM only (resets on restart), per the demo design.
 """
 from __future__ import annotations
 
+import threading
 from collections import deque
+from typing import Callable
 
+from ..config import CONFIG
+from ..logbus import get_logger
 from ..mqtt_client import MqttClient, now_ts
 from .. import uns
+
+log = get_logger("agent")
+
+# A heartbeat callback returns (reasoning, decision). Returning a falsy
+# reasoning means "stay quiet this tick" (e.g. the agent is mid-incident).
+HeartbeatFn = Callable[[], tuple[str | None, dict | None]]
 
 
 class AgentBase:
@@ -16,9 +26,43 @@ class AgentBase:
         self.name = name
         self.mqtt = MqttClient(client_id=f"ventuno-agent-{name}")
         self.memory: deque[dict] = deque(maxlen=memory_size)
+        self._hb_stop = threading.Event()
+        self._hb_thread: threading.Thread | None = None
 
     def connect(self) -> None:
         self.mqtt.connect()
+
+    def start_heartbeat(self, status_fn: HeartbeatFn, interval: float | None = None) -> None:
+        """Post a periodic 'all clear' trace to Panel C while the line is healthy.
+
+        ``status_fn`` is polled every ``interval`` seconds (default
+        ``CONFIG.heartbeat_s``); it returns ``(reasoning, decision)``. A falsy
+        reasoning means the agent is busy (mid-incident) and skips this tick, so
+        heartbeats never talk over an active investigation.
+        """
+        period = CONFIG.heartbeat_s if interval is None else interval
+        if period <= 0:
+            log.info("%s heartbeat disabled (interval=%s)", self.name, period)
+            return
+        self._hb_thread = threading.Thread(
+            target=self._heartbeat_loop, args=(status_fn, period),
+            name=f"agent-{self.name}-heartbeat", daemon=True)
+        self._hb_thread.start()
+        log.info("%s heartbeat started (every %ss)", self.name, period)
+
+    def _heartbeat_loop(self, status_fn: HeartbeatFn, period: float) -> None:
+        while not self._hb_stop.wait(period):
+            try:
+                reasoning, decision = status_fn()
+            except Exception as exc:  # a bad status probe must not kill the loop
+                log.exception("%s heartbeat status error: %s", self.name, exc)
+                continue
+            if not reasoning:
+                continue  # agent chose to stay quiet (busy with an incident)
+            self.publish_trace("heartbeat", {"interval_s": period}, reasoning, decision)
+
+    def stop_heartbeat(self) -> None:
+        self._hb_stop.set()
 
     def remember(self, event: dict) -> None:
         event = {"ts": now_ts(), **event}
