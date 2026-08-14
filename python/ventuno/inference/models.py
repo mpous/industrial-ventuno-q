@@ -118,6 +118,23 @@ class BrickModel:
         from arduino.app_bricks.vibration_anomaly_detection import VibrationAnomalyDetection
 
         self._brick = VibrationAnomalyDetection(anomaly_detection_threshold=0.0)
+
+        # --- TEMPORARY DIAGNOSTIC: dump the brick's real API + source ---
+        # arduino.* is only importable inside the running App Lab app, so we
+        # introspect the brick here to see what actually drives inference.
+        # Remove this block once we know how on_anomaly is fired.
+        try:
+            import inspect as _inspect
+            print("[brick-introspect] file:", _inspect.getsourcefile(type(self._brick)))
+            print("[brick-introspect] methods:",
+                  [m for m in dir(self._brick) if not m.startswith("__")])
+            print("[brick-introspect] ===== SOURCE START =====")
+            print(_inspect.getsource(type(self._brick)))
+            print("[brick-introspect] ===== SOURCE END =====")
+        except Exception as _exc:
+            print("[brick-introspect] failed:", _exc)
+        # --- END TEMPORARY DIAGNOSTIC ---
+
         self._last_score = 0.0
         self._capture_count = 0
         self._fed_count = 0
