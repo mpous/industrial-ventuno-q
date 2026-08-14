@@ -103,8 +103,13 @@ class BrickModel:
     threshold to 0 so the callback fires every window, capture the latest score,
     and let ``edge_inference`` apply its own threshold + persistence logic.
 
-    We feed the raw window we already publish on ``vibration/raw`` (interleaved
-    x,y,z). Units, axis order, and rate must match the EI model's training data.
+    We are **simulating** the accelerometer: there is no MCU sketch or Router
+    Bridge here. In the stock App Lab example the microcontroller pushes one
+    live reading at a time via ``Bridge.provide("record_sensor_movement", ...)``
+    which calls ``vibration.accumulate_samples((x, y, z))``. Instead we replay
+    the synthetic window we publish on ``vibration/raw``, feeding it to the same
+    ``accumulate_samples()`` one ``(x, y, z)`` triple at a time. Units, axis
+    order, and rate must still match the EI model's training data.
     """
 
     version = "brick-vibration"
@@ -161,18 +166,19 @@ class BrickModel:
         x, y, z = raw_axis.get("x", []), raw_axis.get("y", []), raw_axis.get("z", [])
         n = min(len(x), len(y), len(z))
         if n:
-            interleaved: list[float] = []
+            # accumulate_samples() takes ONE (x, y, z) triple per call (the App
+            # Lab example feeds one MCU reading at a time). We're simulating the
+            # sensor, so we replay the whole window here, one triple per call,
+            # rather than reading a physical accelerometer over the bridge.
             for i in range(n):
-                interleaved.extend((x[i], y[i], z[i]))
-            self._brick.accumulate_samples(interleaved)
+                self._brick.accumulate_samples((x[i], y[i], z[i]))
             self._fed_count += 1
-            log.debug("fed %d interleaved samples (%d/axis); captured=%d",
-                      len(interleaved), n, self._capture_count)
-            # on_anomaly fires from the pump thread once enough samples span a
+            log.debug("fed %d triples (x,y,z); captured=%d", n, self._capture_count)
+            # on_anomaly fires from the pump thread once enough triples span a
             # full window. Warn once if we've fed several windows and it still
             # hasn't fired — usually a feature-count/axis/rate mismatch.
             if self._capture_count == 0 and self._fed_count == 5:
-                log.warning("fed %d windows (%d samples/axis each) but on_anomaly "
+                log.warning("fed %d windows (%d triples each) but on_anomaly "
                             "has not fired yet; brick needs input_features=%d "
                             "(check window size, axis order, and rate)",
                             self._fed_count, n, self._features)
