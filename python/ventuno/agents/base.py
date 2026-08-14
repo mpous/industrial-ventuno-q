@@ -69,7 +69,7 @@ class AgentBase:
         self.memory.append(event)
 
     def publish_trace(self, event: str, context: dict, reasoning: str,
-                      decision: dict | None = None) -> None:
+                      decision: dict | None = None, prompt: str | None = None) -> None:
         self.mqtt.publish(
             uns.agent_trace(self.name),
             {
@@ -79,6 +79,7 @@ class AgentBase:
                 "context": context,
                 "reasoning": reasoning,
                 "decision": decision or {},
+                "prompt": prompt or "",
                 "memory": list(self.memory),
             },
         )

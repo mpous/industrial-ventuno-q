@@ -49,8 +49,10 @@ class OllamaLLM:
         self.host = host.rstrip("/")
         self.model = model
         self.name = f"ollama:{model}"
+        self.last_prompt = ""  # full prompt from the most recent complete() (Panel C)
 
     def complete(self, system: str, user: str, want_json: bool = True) -> tuple[str, str]:
+        self.last_prompt = f"{system}\n\n{user}"
         body = {
             "model": self.model,
             "messages": [
@@ -85,6 +87,7 @@ class BrickLLM:
         from arduino.app_bricks.llm import LargeLanguageModel  # board-only import
 
         self._llm = LargeLanguageModel()
+        self.last_prompt = ""  # full prompt from the most recent complete() (Panel C)
         # The brick picks its model from App Lab config, ignoring anything we
         # pass. Read the resolved name back so the dashboard shows the truth.
         resolved = CONFIG.llm_model or self._resolve_model_name() or model or "default"
@@ -114,6 +117,7 @@ class BrickLLM:
         prompt = f"{system}\n\n{user}"
         if want_json:
             prompt += "\n\nRespond with ONLY a single JSON object, no prose."
+        self.last_prompt = prompt
         text = self._llm.chat(prompt)
         content = _extract_json(text) if want_json else text
         try:

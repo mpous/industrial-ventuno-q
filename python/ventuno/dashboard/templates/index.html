@@ -42,6 +42,11 @@
   .metric { flex:1; min-width:90px; background:var(--inset); border:1px solid var(--border); border-radius:6px; padding:8px; }
   .metric .v { font-size:20px; font-weight:bold; }
   .metric .l { font-size:11px; color:var(--muted); }
+  /* Panel A metrics are compact so all four fit on one row without growing the panel. */
+  .pa .row { gap:8px; }
+  .pa .metric { min-width:0; padding:6px; }
+  .pa .metric .v { font-size:15px; }
+  .pa .metric .l { font-size:10px; }
   .bar { height:10px; background:var(--inset); border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-top:4px; }
   .bar > div { height:100%; background:var(--accent); }
   button, select, input { background:var(--btn); color:var(--fg); border:1px solid var(--border); border-radius:6px;
@@ -82,6 +87,12 @@
   .evt { border-left:3px solid var(--accent); padding:6px 10px; background:var(--inset); border-radius:4px; }
   .evt .h { font-size:12px; }
   .evt .r { font-size:12px; color:var(--fg); margin-top:4px; }
+  .evt .p { margin-top:4px; }
+  .evt .p summary { font-size:10px; color:var(--muted); cursor:pointer; user-select:none; }
+  .evt .p summary:hover { color:var(--accent); }
+  .evt .p pre { font-size:11px; color:var(--muted); background:var(--wave); border:1px solid var(--border);
+                border-radius:4px; padding:6px 8px; margin:4px 0 0; white-space:pre-wrap; word-break:break-word;
+                max-height:220px; overflow:auto; }
   .evt .d { font-size:11px; color:var(--warn); margin-top:4px; white-space:pre-wrap; }
   .evt .t { font-size:10px; color:var(--muted); float:right; }
   .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--btn); color:var(--muted); }
@@ -354,6 +365,12 @@ function renderAgents(){
         <span class="tag">memory: ${(e.memory||[]).length}</span></div>
       <div class="r">${e.reasoning||''}</div>
       <div class="d">${e.decision&&Object.keys(e.decision).length?JSON.stringify(e.decision):''}</div>`;
+    if(e.prompt){
+      const det=document.createElement('details'); det.className='p';
+      const sum=document.createElement('summary'); sum.textContent='prompt sent to LLM';
+      const pre=document.createElement('pre'); pre.textContent=e.prompt;
+      det.appendChild(sum); det.appendChild(pre); d.appendChild(det);
+    }
     el.appendChild(d);
   }
 }

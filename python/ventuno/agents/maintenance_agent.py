@@ -111,7 +111,8 @@ class MaintenanceAgent(AgentBase):
 
         self.remember({"event": "triage", "score": context["anomaly_score"],
                        "decision": verdict.get("decision"), "cause": verdict.get("cause_hypothesis")})
-        self.publish_trace("triage", context, verdict.get("rationale", reasoning), verdict)
+        self.publish_trace("triage", context, verdict.get("rationale", reasoning), verdict,
+                           prompt=self.llm.last_prompt)
 
         if verdict.get("decision") != "repair":
             print(f"[maintenance] false alarm (score={context['anomaly_score']})")

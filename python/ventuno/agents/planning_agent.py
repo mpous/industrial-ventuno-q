@@ -100,7 +100,8 @@ class PlanningAgent(AgentBase):
         plan["ts"] = now_ts()
 
         self.remember({"event": "replan", "window_id": window_id, "actions": plan.get("actions")})
-        self.publish_trace("replan_production", context, reasoning, plan)
+        self.publish_trace("replan_production", context, reasoning, plan,
+                           prompt=self.llm.last_prompt)
         self.mqtt.publish(uns.PLAN, plan)
         print(f"[planning] published plan {plan.get('plan_id')} for window {window_id}")
         log.info("published plan %s for window %s", plan.get("plan_id"), window_id)
