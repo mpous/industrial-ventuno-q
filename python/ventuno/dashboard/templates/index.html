@@ -96,7 +96,7 @@
   <span class="muted" id="base">{{ base }}</span>
   <span id="state-pill">—</span>
   <span class="spacer"></span>
-  <span class="muted" id="conn" title="Live connection to the dashboard's real-time event stream (Server-Sent Events). '● live' means the browser is receiving UNS updates in real time; '○ reconnecting' means the stream dropped and is retrying.">connecting…</span>
+  <span class="muted" id="conn" title="Live connection to the dashboard's real-time event stream (Server-Sent Events). Green ● = receiving UNS updates in real time; red ● = the stream dropped and is retrying."><span style="color:var(--warn)">●</span> connecting…</span>
   <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
 </header>
 
@@ -421,8 +421,8 @@ fetch('/api/state').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 const es = new EventSource('/events');
-es.onopen = ()=>document.getElementById('conn').textContent='● live stream';
-es.onerror = ()=>document.getElementById('conn').textContent='○ reconnecting…';
+es.onopen = ()=>document.getElementById('conn').innerHTML='<span style="color:var(--ok)">●</span> live stream';
+es.onerror = ()=>document.getElementById('conn').innerHTML='<span style="color:var(--bad)">●</span> reconnecting…';
 es.onmessage = (ev)=>{
   const m = JSON.parse(ev.data);
   if(m.kind==='raw'){ drawWave(m.payload.axis||{}); return; }
